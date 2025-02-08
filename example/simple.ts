@@ -18,12 +18,12 @@ observer.observe({ entryTypes: ['measure'] })
 const chunkMidPlatform = () => {
     for (let x = 0; x < CHUNK_SIZE; x++) {
         for (let z = 0; z < CHUNK_SIZE; z++) {
-            world.setBlock(x, 64, z, TEST_BLOCKS.stone.id);
+            world.setBlock(x, 64, z, TEST_BLOCKS.stone);
         }
     }
 }
 
-const main = () => {
+const testHeightPerf = () => {
 
     // Place a light source
     chunkMidPlatform()
@@ -34,6 +34,12 @@ const main = () => {
     console.log(world.getBlockLight(5, 64, 5))
     console.log(world.getSunLight(5, 64, 5))
     console.log(globalThis._debug_get_block_count)
+}
+
+const main = () => {
+    world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone);
+    world.setBlock(5, 64, 5, TEST_BLOCKS.air);
+    console.log(world.getBlockLight(5, 64, 4))
 }
 
 main();

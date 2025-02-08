@@ -12,16 +12,87 @@ interface UIState {
     placeBlockType: 'glowstone' | 'stone' | 'water';
 }
 
+// Add after UIState interface
+interface UIControl<T> {
+    type: 'number' | 'select';
+    label: string;
+    key: keyof UIState;
+    value: T;
+    options?: { value: T, label: string }[];
+    min?: number;
+    max?: number;
+}
+
+const controls: UIControl<any>[] = [
+    {
+        type: 'number',
+        label: 'Display Size',
+        key: 'displaySize',
+        value: 10,
+        min: 1,
+        max: 32
+    },
+    {
+        type: 'number',
+        label: 'Block Size',
+        key: 'blockSize',
+        value: 32,
+        min: 16,
+        max: 64
+    },
+    {
+        type: 'select',
+        label: 'View Plane',
+        key: 'viewPlane',
+        value: 'XZ',
+        options: [
+            { value: 'XZ', label: 'XZ' },
+            { value: 'ZY', label: 'ZY' },
+            { value: 'XY', label: 'XY' }
+        ]
+    },
+    {
+        type: 'number',
+        label: 'Slice Position',
+        key: 'slicePosition',
+        value: 64,
+        min: 0,
+        max: 255
+    },
+    {
+        type: 'select',
+        label: 'Light Type',
+        key: 'lightType',
+        value: 'blockLight',
+        options: [
+            { value: 'blockLight', label: 'Block Light' },
+            { value: 'skyLight', label: 'Sky Light' }
+        ]
+    },
+    {
+        type: 'select',
+        label: 'Place Block',
+        key: 'placeBlockType',
+        value: 'glowstone',
+        options: [
+            { value: 'glowstone', label: 'Glowstone' },
+            { value: 'stone', label: 'Stone' },
+            { value: 'water', label: 'Water' }
+        ]
+    }
+];
+
 const loadStateFromURL = (): UIState => {
     const params = new URLSearchParams(window.location.search);
-    return {
-        displaySize: parseInt(params.get('displaySize') || '10'),
-        blockSize: parseInt(params.get('blockSize') || '32'),
-        viewPlane: (params.get('viewPlane') || 'XZ') as UIState['viewPlane'],
-        slicePosition: parseInt(params.get('slicePosition') || '64'),
-        lightType: (params.get('lightType') || 'blockLight') as UIState['lightType'],
-        placeBlockType: (params.get('placeBlockType') || 'glowstone') as UIState['placeBlockType']
-    };
+    return controls.reduce((state, control) => {
+        const value = params.get(control.key);
+        if (value === null) return { ...state, [control.key]: control.value };
+
+        return {
+            ...state,
+            [control.key]: control.type === 'number' ? parseInt(value) : value
+        };
+    }, {} as UIState);
 };
 
 const state: UIState = loadStateFromURL();
@@ -35,7 +106,7 @@ const testCasePlain = () => {
     // Load chunk when needed
 
     // Place a light source
-    world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone.id);
+    world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone);
     // world.setBlockLight(5, 64, 5, 15);
 
     // world.calculateInitialSunLight(chunk);
@@ -67,140 +138,62 @@ const displayStats = () => {
     // Update stats periodically
     setInterval(() => {
         statsDiv.textContent = world.getPerformanceStats();
-    }, 1000);
+    }, 500);
 }
 
 // UI Setup
 const container = document.createElement('div')
 document.body.appendChild(container)
 
-const controls = document.createElement('div')
-controls.style.marginBottom = '10px'
-container.appendChild(controls)
+const controlsContainer = document.createElement('div')
+controlsContainer.style.marginBottom = '10px'
+container.appendChild(controlsContainer)
 
-// Size controls
-const sizeLabel = document.createElement('label')
-sizeLabel.textContent = 'Display Size: '
-controls.appendChild(sizeLabel)
+// Replace UI controls creation with this
+const createControls = () => {
+    controls.forEach(control => {
+        const label = document.createElement('label');
+        label.textContent = ` ${control.label}: `;
+        container.appendChild(label);
 
-const sizeInput = document.createElement('input')
-sizeInput.type = 'number'
-sizeInput.value = state.displaySize.toString()
-sizeInput.min = '1'
-sizeInput.max = '32'
-sizeInput.addEventListener('change', () => {
-    state.displaySize = parseInt(sizeInput.value)
-    canvas.width = state.displaySize * state.blockSize
-    canvas.height = state.displaySize * state.blockSize
-    updateURL()
-    render()
-})
-controls.appendChild(sizeInput)
+        if (control.type === 'number') {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = state[control.key].toString();
+            input.min = control.min?.toString() || '0';
+            input.max = control.max?.toString() || '255';
+            input.addEventListener('change', () => {
+                //@ts-ignore
+                state[control.key] = parseInt(input.value);
+                if (control.key === 'displaySize' || control.key === 'blockSize') {
+                    canvas.width = state.displaySize * state.blockSize;
+                    canvas.height = state.displaySize * state.blockSize;
+                }
+                updateURL();
+                render();
+            });
+            container.appendChild(input);
+        } else if (control.type === 'select') {
+            const select = document.createElement('select');
+            control.options?.forEach(option => {
+                const opt = document.createElement('option');
+                opt.value = option.value;
+                opt.textContent = option.label;
+                select.appendChild(opt);
+            });
+            select.value = state[control.key].toString();
+            select.addEventListener('change', () => {
+                //@ts-ignore
+                state[control.key] = select.value
+                updateURL();
+                render();
+            });
+            container.appendChild(select);
+        }
+    });
+};
 
-// Block size controls
-const blockSizeLabel = document.createElement('label')
-blockSizeLabel.textContent = ' Block Size: '
-controls.appendChild(blockSizeLabel)
-
-const blockSizeInput = document.createElement('input')
-blockSizeInput.type = 'number'
-blockSizeInput.value = state.blockSize.toString()
-blockSizeInput.min = '16'
-blockSizeInput.max = '64'
-blockSizeInput.addEventListener('change', () => {
-    state.blockSize = parseInt(blockSizeInput.value)
-    canvas.width = state.displaySize * state.blockSize
-    canvas.height = state.displaySize * state.blockSize
-    updateURL()
-    render()
-})
-controls.appendChild(blockSizeInput)
-
-// Plane selector
-const planeLabel = document.createElement('label')
-planeLabel.textContent = ' View Plane: '
-controls.appendChild(planeLabel)
-
-const planeSelect = document.createElement('select')
-const planes = ['XZ', 'ZY', 'XY']
-planes.forEach(plane => {
-    const option = document.createElement('option')
-    option.value = plane
-    option.textContent = plane
-    planeSelect.appendChild(option)
-})
-planeSelect.value = state.viewPlane
-planeSelect.addEventListener('change', () => {
-    state.viewPlane = planeSelect.value as UIState['viewPlane']
-    updateURL()
-    render()
-})
-controls.appendChild(planeSelect)
-
-// Slice position control
-const sliceLabel = document.createElement('label')
-sliceLabel.textContent = ' Slice Position: '
-controls.appendChild(sliceLabel)
-
-const sliceInput = document.createElement('input')
-sliceInput.type = 'number'
-sliceInput.value = state.slicePosition.toString()
-sliceInput.min = '0'
-sliceInput.max = '255'
-sliceInput.addEventListener('change', () => {
-    state.slicePosition = parseInt(sliceInput.value)
-    updateURL()
-    render()
-})
-controls.appendChild(sliceInput)
-
-// After the slice position control, add light type selector
-const lightTypeLabel = document.createElement('label')
-lightTypeLabel.textContent = ' Light Type: '
-controls.appendChild(lightTypeLabel)
-
-const lightTypeSelect = document.createElement('select')
-const lightTypes = [
-    { value: 'blockLight', label: 'Block Light' },
-    { value: 'skyLight', label: 'Sky Light' }
-]
-lightTypes.forEach(type => {
-    const option = document.createElement('option')
-    option.value = type.value
-    option.textContent = type.label
-    lightTypeSelect.appendChild(option)
-})
-lightTypeSelect.value = state.lightType
-lightTypeSelect.addEventListener('change', () => {
-    state.lightType = lightTypeSelect.value as UIState['lightType']
-    updateURL()
-    render()
-})
-controls.appendChild(lightTypeSelect)
-
-// Add block type selector after light type selector
-const blockTypeLabel = document.createElement('label');
-blockTypeLabel.textContent = ' Place Block: ';
-controls.appendChild(blockTypeLabel);
-
-const blockTypeSelect = document.createElement('select');
-const blockTypes = [
-    { value: 'glowstone', label: 'Glowstone' },
-    { value: 'stone', label: 'Stone' },
-    { value: 'water', label: 'Water' }
-];
-blockTypes.forEach(type => {
-    const option = document.createElement('option');
-    option.value = type.value;
-    option.textContent = type.label;
-    blockTypeSelect.appendChild(option);
-});
-blockTypeSelect.value = state.placeBlockType;
-blockTypeSelect.addEventListener('change', () => {
-    state.placeBlockType = blockTypeSelect.value as UIState['placeBlockType'];
-    updateURL();
-});
-controls.appendChild(blockTypeSelect);
+createControls()
 
 const canvas = document.createElement('canvas')
 const ctx = canvas.getContext('2d')!
@@ -327,7 +320,32 @@ testCase()
 
 render()
 
-// Add click handlers to canvas
+// Add this helper function
+const updateBlockAndLight = (x: number, y: number, z: number, blockId: number | null) => {
+    const oldBlock = world.getBlock(x, y, z);
+    const oldBlockLight = world.getBlockLight(x, y, z);
+    const oldSunLight = world.getSunLight(x, y, z);
+
+    if (blockId === null) {
+        // Removing block
+        if (oldBlock?.isLightSource) {
+            // If removing a light source, we need to remove its light first
+            world.setBlockLight(x, y, z, 0);
+            world.propagateLight();
+        }
+        world.setBlock(x, y, z, TEST_BLOCKS.air);
+    } else {
+        // Adding new block
+        const newBlock = TEST_BLOCKS[blockId === TEST_BLOCKS.glowstone.id ? 'glowstone' :
+                                  blockId === TEST_BLOCKS.stone.id ? 'stone' : 'water'];
+
+        // If placing an opaque block where there was light, remove the light first
+
+        world.setBlock(x, y, z, newBlock);
+    }
+};
+
+// Update the click handler to use the new function
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
     const x = Math.floor((e.clientX - rect.left) / state.blockSize);
@@ -339,16 +357,10 @@ canvas.addEventListener('mousedown', (e) => {
 
     if (e.button === 0) { // Left click
         const blockId = TEST_BLOCKS[state.placeBlockType].id;
-        world.setBlock(worldX, worldY, worldZ, blockId);
-        if (state.placeBlockType === 'glowstone') {
-            world.setBlockLight(worldX, worldY, worldZ, 15);
-        }
+        updateBlockAndLight(worldX, worldY, worldZ, blockId);
     } else if (e.button === 2) { // Right click
-        world.setBlock(worldX, worldY, worldZ, TEST_BLOCKS.air.id);
-        world.setBlockLight(worldX, worldY, worldZ, 0);
+        updateBlockAndLight(worldX, worldY, worldZ, null);
     }
-
-    world.propagateLight();
 });
 
 // Prevent context menu on right click

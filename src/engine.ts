@@ -349,8 +349,71 @@ export class World {
         return this.externalWorld.getBlock(x, y, z);
     }
 
-    setBlock(x: number, y: number, z: number, block: WorldBlock): void {
+    setBlock(x: number, y: number, z: number, block: WorldBlock, autoPropagate = true): void {
+        const oldBlock = this.getBlock(x, y, z);
+        const oldBlockLight = this.getBlockLight(x, y, z);
+        const oldSunLight = this.getSunLight(x, y, z);
+
+        // Set the new block
         this.externalWorld.setBlock(x, y, z, block.id);
+
+        // Handle light source changes
+        if (oldBlock?.isLightSource && !block.isLightSource) {
+            // Old block was a light source but new one isn't - remove light
+            this.pushChangedBlockLight(x, y, z, 0);
+        } else if (!oldBlock?.isLightSource && block.isLightSource) {
+            // New block is a light source but old one wasn't - add light
+            this.pushChangedBlockLight(x, y, z, block.lightEmission);
+        }
+
+        // Handle opacity changes affecting existing light
+        if (!oldBlock?.isOpaque && block.isOpaque) {
+            // New block is opaque but old one wasn't - remove any existing light
+            if (oldBlockLight > 0) {
+                this.pushChangedBlockLight(x, y, z, 0);
+            }
+            if (oldSunLight > 0) {
+                this.pushChangedSunLight(x, y, z, 0);
+            }
+        }
+
+        if (autoPropagate) {
+            // Propagate light changes if needed
+            if (this.blockLightQueue.length > 0) {
+                this.propagateLight();
+            }
+            if (this.sunLightQueue.length > 0 && this.externalWorld.SUPPORTS_SKY_LIGHT) {
+                this.propagateSunLight();
+            }
+        }
+    }
+
+    pushChangedBlockLight(x: number, y: number, z: number, newValue: number) {
+        this.setBlockLight(x, y, z, newValue);
+        const chunkX = Math.floor(x / CHUNK_SIZE);
+        const chunkZ = Math.floor(z / CHUNK_SIZE);
+        const chunk = this.getChunk(chunkX, chunkZ)!;
+
+        this.blockLightQueue.push({
+            x: x % CHUNK_SIZE,
+            y,
+            z: z % CHUNK_SIZE,
+            chunk
+        });
+    }
+
+    pushChangedSunLight(x: number, y: number, z: number, newValue: number) {
+        this.setSunLight(x, y, z, newValue);
+        const chunkX = Math.floor(x / CHUNK_SIZE);
+        const chunkZ = Math.floor(z / CHUNK_SIZE);
+        const chunk = this.getChunk(chunkX, chunkZ)!;
+
+        this.sunLightQueue.push({
+            x: x % CHUNK_SIZE,
+            y,
+            z: z % CHUNK_SIZE,
+            chunk
+        });
     }
 
     getChunk(x: number, z: number): Chunk | undefined {
@@ -492,12 +555,10 @@ export class World {
             processed.add(nodeKey);
 
             const block = chunk.getBlock(x, y, z);
-            if (block?.isOpaque) {
-                continue;
-            }
-
             const lightLevel = getLightFn(chunk, x, y, z);
-            if (lightLevel === 0) {  // Skip propagation if no light
+
+            // If this is an opaque block and it's not the source of light, skip propagation
+            if (block?.isOpaque && !block.isLightSource) {
                 continue;
             }
 
@@ -786,9 +847,9 @@ export class World {
 
     private filterLight(block: WorldBlock | undefined, lightLevel: number): number {
         if (!block) {
-            return 0;
+            return Math.max(0, lightLevel - 1);
         }
-        if (block.isOpaque) {
+        if (block.isOpaque && !block.isLightSource) {
             return 0;
         }
         if (block.filterLight) {
