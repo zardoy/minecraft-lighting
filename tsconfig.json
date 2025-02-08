@@ -1,0 +1,12 @@
+{
+    "extends": "@zardoy/tsconfig/tsconfig",
+    "compilerOptions": {
+        "declaration": true,
+        "outDir": "./dist",
+        "noEmit": false,
+        "sourceMap": true
+    },
+    "include": [
+        "src"
+    ]
+}

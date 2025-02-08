@@ -1,0 +1,37 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@zardoy/tsconfig':
+        specifier: ^1.5.1
+        version: 1.5.1(typescript@5.7.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.7.3
+
+packages:
+
+  '@zardoy/tsconfig@1.5.1':
+    resolution: {integrity: sha512-EZ9icCDntIAMVSoSwpp2fF5YQH+L50OR1jf4D0s+aJIMPLm9eTaNRMJRoUfxpqzGj6N+3/lZFXjZcZD8V6et+w==}
+    engines: {node: '>=14'}
+    peerDependencies:
+      typescript: '*'
+
+  typescript@5.7.3:
+    resolution: {integrity: sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+snapshots:
+
+  '@zardoy/tsconfig@1.5.1(typescript@5.7.3)':
+    dependencies:
+      typescript: 5.7.3
+
+  typescript@5.7.3: {}
