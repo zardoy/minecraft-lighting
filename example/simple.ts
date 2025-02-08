@@ -1,4 +1,4 @@
-import { TEST_BLOCKS, World } from '../../minecraft-lighting/src/engine'
+import { CHUNK_SIZE, TEST_BLOCKS, World } from '../../minecraft-lighting/src/engine'
 import { performance, PerformanceObserver } from 'perf_hooks';
 
 const world = new World();
@@ -15,15 +15,25 @@ const observer = new PerformanceObserver((list) => {
 });
 observer.observe({ entryTypes: ['measure'] })
 
+const chunkMidPlatform = () => {
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+        for (let z = 0; z < CHUNK_SIZE; z++) {
+            world.setBlock(x, 64, z, TEST_BLOCKS.stone.id);
+        }
+    }
+}
+
 const main = () => {
 
-// Place a light source
-    world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone.id);
+    // Place a light source
+    chunkMidPlatform()
+    // world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone.id);
 
     // Process the chunk
     world.receiveUpdateColumn(0, 0);
     console.log(world.getBlockLight(5, 64, 5))
     console.log(world.getSunLight(5, 64, 5))
+    console.log(globalThis._debug_get_block_count)
 }
 
 main();

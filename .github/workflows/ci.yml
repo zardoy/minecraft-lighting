@@ -1,0 +1,15 @@
+name: NPM Release
+on:
+  pull_request:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: |
+            args: [--no-frozen-lockfile, --strict-peer-dependencies]
+      - run: pnpm build
+      - run: pnpm test

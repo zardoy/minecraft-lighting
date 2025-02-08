@@ -1,6 +1,8 @@
 export const CHUNK_SIZE = 16;
 export const MAX_LIGHT_LEVEL = 15;
 
+globalThis._debug_get_block_count = 0
+
 // Types
 export interface Vector3 {
     x: number;
@@ -87,6 +89,7 @@ export class ChunkSection {
     }
 
     getBlock(x: number, y: number, z: number): WorldBlock {
+        globalThis._debug_get_block_count++
         const index = this.getIndex(x, y, z);
         const blockId = this.blocks[index];
         if (!blockId) {
@@ -209,6 +212,8 @@ interface LightProcessingQueue {
 export interface ExternalWorld {
     WORLD_HEIGHT: number;
     WORLD_MIN_Y: number;
+    SUPPORTS_SKY_LIGHT: boolean;
+
     getBlock(x: number, y: number, z: number): WorldBlock | undefined;
     setBlock(x: number, y: number, z: number, blockId: number): void;
     getHighestBlockInColumn?(chunk: Chunk, x: number, z: number): number // use only if provided
@@ -224,6 +229,7 @@ export class TestWorld implements ExternalWorld {
     private chunks: Map<string, Chunk> = new Map();
     readonly WORLD_HEIGHT = 384;
     readonly WORLD_MIN_Y = -64;
+    readonly SUPPORTS_SKY_LIGHT = false;
 
     getBlock(x: number, y: number, z: number): WorldBlock | undefined {
         const chunkX = Math.floor(x / CHUNK_SIZE);
@@ -343,8 +349,8 @@ export class World {
         return this.externalWorld.getBlock(x, y, z);
     }
 
-    setBlock(x: number, y: number, z: number, blockId: number): void {
-        this.externalWorld.setBlock(x, y, z, blockId);
+    setBlock(x: number, y: number, z: number, block: WorldBlock): void {
+        this.externalWorld.setBlock(x, y, z, block.id);
     }
 
     getChunk(x: number, z: number): Chunk | undefined {
@@ -383,6 +389,46 @@ export class World {
                 return y;
             }
         }
+
+        // Start binary search from middle of world height
+        // let low = this.WORLD_MIN_Y;
+        // let high = this.WORLD_HEIGHT - 1;
+        // let lastSolidBlock = this.WORLD_MIN_Y - 1;
+
+        // // First check the middle section where terrain is most likely
+        // const mid = Math.floor((low + high) / 2);
+        // const block = chunk.getBlock(x, mid, z);
+
+        // // If block found at mid, search upwards from there
+        // if (block && block.id !== TEST_BLOCKS.air.id) {
+        //     low = mid;
+        // } else {
+        //     // If no block at mid, search downwards
+        //     high = mid;
+        // }
+
+        // // Binary search to find highest non-air block
+        // while (low <= high) {
+        //     const mid = Math.floor((low + high) / 2);
+        //     const block = chunk.getBlock(x, mid, z);
+        //     const blockAbove = chunk.getBlock(x, mid + 1, z);
+
+        //     // Found transition from solid to air
+        //     if (block && block.id !== TEST_BLOCKS.air.id &&
+        //         (!blockAbove || blockAbove.id === TEST_BLOCKS.air.id)) {
+        //         return mid;
+        //     }
+
+        //     // If current block is solid, look higher
+        //     if (block && block.id !== TEST_BLOCKS.air.id) {
+        //         lastSolidBlock = Math.max(lastSolidBlock, mid);
+        //         low = mid + 1;
+        //     } else {
+        //         // If current block is air, look lower
+        //         high = mid - 1;
+        //     }
+        // }
+
         return this.WORLD_MIN_Y;
     }
 
@@ -630,6 +676,10 @@ export class World {
     }
 
     private async processSunlightForChunk(chunk: Chunk): Promise<void> {
+        if (!this.externalWorld.SUPPORTS_SKY_LIGHT) {
+            return;
+        }
+
         this.markStart('processSunlightForChunk');
         // Calculate initial sunlight
         for (let x = 0; x < CHUNK_SIZE; x++) {
