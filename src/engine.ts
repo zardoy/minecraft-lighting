@@ -22,7 +22,7 @@ export interface LightNode {
     chunk: Chunk;
 }
 
-interface LightRemovalNode extends LightNode {
+export interface LightRemovalNode extends LightNode {
     value: number;
 }
 
@@ -330,6 +330,7 @@ export class TestWorld implements ExternalWorld {
 export class World {
     private sunLightQueue: LightNode[] = [];
     private blockLightQueue: LightNode[] = [];
+    private lightRemovalQueue: LightRemovalNode[] = [];
     private pendingCrossChunkLight: Map<string, LightNode[]> = new Map();
     private pendingLightUpdates: LightProcessingQueue[] = [];
     private isProcessingLight = false;
@@ -354,31 +355,42 @@ export class World {
         const oldBlockLight = this.getBlockLight(x, y, z);
         const oldSunLight = this.getSunLight(x, y, z);
 
+        // If the old block had any light, we need to remove it first
+        if (oldBlockLight > 0) {
+            this.removeBlockLight(x, y, z);
+        }
+        if (oldSunLight > 0 && this.externalWorld.SUPPORTS_SKY_LIGHT) {
+            this.removeSunLight(x, y, z);
+        }
+
         // Set the new block
         this.externalWorld.setBlock(x, y, z, block.id);
 
-        // Handle light source changes
-        if (oldBlock?.isLightSource && !block.isLightSource) {
-            // Old block was a light source but new one isn't - remove light
-            this.pushChangedBlockLight(x, y, z, 0);
-        } else if (!oldBlock?.isLightSource && block.isLightSource) {
-            // New block is a light source but old one wasn't - add light
-            this.pushChangedBlockLight(x, y, z, block.lightEmission);
+        // If the new block is a light source, add its light
+        if (block.isLightSource) {
+            this.setBlockLight(x, y, z, block.lightEmission);
+            this.blockLightQueue.push({
+                x: x % CHUNK_SIZE,
+                y,
+                z: z % CHUNK_SIZE,
+                chunk: this.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))!
+            });
         }
 
-        // Handle opacity changes affecting existing light
-        if (!oldBlock?.isOpaque && block.isOpaque) {
-            // New block is opaque but old one wasn't - remove any existing light
-            if (oldBlockLight > 0) {
-                this.pushChangedBlockLight(x, y, z, 0);
-            }
-            if (oldSunLight > 0) {
-                this.pushChangedSunLight(x, y, z, 0);
+        // Handle opacity changes affecting sunlight
+        if (this.externalWorld.SUPPORTS_SKY_LIGHT) {
+            if (block.isOpaque) {
+                this.updateSunLightRemove(x, y, z);
+            } else {
+                this.updateSunLightAdd(x, y, z);
             }
         }
 
         if (autoPropagate) {
             // Propagate light changes if needed
+            if (this.lightRemovalQueue.length > 0) {
+                this.unPropagateLight();
+            }
             if (this.blockLightQueue.length > 0) {
                 this.propagateLight();
             }
@@ -388,32 +400,152 @@ export class World {
         }
     }
 
-    pushChangedBlockLight(x: number, y: number, z: number, newValue: number) {
-        this.setBlockLight(x, y, z, newValue);
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ)!;
+    private removeBlockLight(x: number, y: number, z: number): void {
+        const lightLevel = this.getBlockLight(x, y, z);
 
-        this.blockLightQueue.push({
+        // Add to removal queue with original light level
+        this.lightRemovalQueue.push({
             x: x % CHUNK_SIZE,
             y,
             z: z % CHUNK_SIZE,
-            chunk
+            value: lightLevel,
+            chunk: this.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))!
         });
+
+        // Set the light to 0
+        this.setBlockLight(x, y, z, 0);
     }
 
-    pushChangedSunLight(x: number, y: number, z: number, newValue: number) {
-        this.setSunLight(x, y, z, newValue);
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ)!;
+    private removeSunLight(x: number, y: number, z: number): void {
+        const lightLevel = this.getSunLight(x, y, z);
 
-        this.sunLightQueue.push({
+        // Add to removal queue with original light level
+        this.lightRemovalQueue.push({
             x: x % CHUNK_SIZE,
             y,
             z: z % CHUNK_SIZE,
-            chunk
+            value: lightLevel,
+            chunk: this.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))!
         });
+
+        // Set the light to 0
+        this.setSunLight(x, y, z, 0);
+    }
+
+    private unPropagateLight(): void {
+        while (this.lightRemovalQueue.length > 0) {
+            const node = this.lightRemovalQueue.shift()!;
+            const { x, y, z, value: lightLevel, chunk } = node;
+
+            const block = chunk.getBlock(x, y, z);
+            // Skip if block is opaque (except for light sources)
+            if (block?.isOpaque && !block.isLightSource) {
+                continue;
+            }
+
+            const directions = [
+                { x: -1, y: 0, z: 0 },
+                { x: 1, y: 0, z: 0 },
+                { x: 0, y: -1, z: 0 },
+                { x: 0, y: 1, z: 0 },
+                { x: 0, y: 0, z: -1 },
+                { x: 0, y: 0, z: 1 }
+            ];
+
+            for (const dir of directions) {
+                const newX = x + dir.x;
+                const newY = y + dir.y;
+                const newZ = z + dir.z;
+
+                // Skip if Y is out of bounds
+                if (newY < this.WORLD_MIN_Y || newY >= this.WORLD_HEIGHT) {
+                    continue;
+                }
+
+                // Handle chunk boundaries
+                let targetChunkX = chunk.position.x;
+                let targetChunkZ = chunk.position.z;
+                let targetX = newX;
+                let targetZ = newZ;
+
+                if (newX < 0) {
+                    targetChunkX--;
+                    targetX = CHUNK_SIZE - 1;
+                } else if (newX >= CHUNK_SIZE) {
+                    targetChunkX++;
+                    targetX = 0;
+                }
+
+                if (newZ < 0) {
+                    targetChunkZ--;
+                    targetZ = CHUNK_SIZE - 1;
+                } else if (newZ >= CHUNK_SIZE) {
+                    targetChunkZ++;
+                    targetZ = 0;
+                }
+
+                // Check if target chunk exists
+                if (!this.hasChunk(targetChunkX, targetChunkZ)) {
+                    continue;
+                }
+
+                const targetChunk = this.externalWorld.getChunk(targetChunkX, targetChunkZ)!;
+                const neighborLight = targetChunk.getBlockLight(targetX, newY, targetZ);
+
+                // If the neighbor's light is coming from the removed light source
+                if (neighborLight !== 0 && neighborLight < lightLevel) {
+                    targetChunk.setBlockLight(targetX, newY, targetZ, 0);
+                    this.lightRemovalQueue.push({
+                        x: targetX,
+                        y: newY,
+                        z: targetZ,
+                        value: neighborLight,
+                        chunk: targetChunk
+                    });
+                }
+                // If the neighbor has equal or greater light level, it might be from another source
+                else if (neighborLight >= lightLevel) {
+                    this.blockLightQueue.push({
+                        x: targetX,
+                        y: newY,
+                        z: targetZ,
+                        chunk: targetChunk
+                    });
+                }
+            }
+        }
+    }
+
+    private updateSunLightRemove(x: number, y: number, z: number): void {
+        // Remove sunlight at this position and propagate removal downward
+        for (let cy = y; cy >= this.WORLD_MIN_Y; cy--) {
+            const currentLight = this.getSunLight(x, cy, z);
+            if (currentLight === 0) break;
+
+            this.removeSunLight(x, cy, z);
+        }
+    }
+
+    private updateSunLightAdd(x: number, y: number, z: number): void {
+        // Check if there's a clear path to the sky
+        for (let cy = y + 1; cy < this.WORLD_HEIGHT; cy++) {
+            const block = this.getBlock(x, cy, z);
+            if (block?.isOpaque) return; // No direct sunlight
+        }
+
+        // Add full sunlight and propagate downward
+        for (let cy = y; cy >= this.WORLD_MIN_Y; cy--) {
+            const block = this.getBlock(x, cy, z);
+            if (block?.isOpaque) break;
+
+            this.setSunLight(x, cy, z, MAX_LIGHT_LEVEL);
+            this.sunLightQueue.push({
+                x: x % CHUNK_SIZE,
+                y: cy,
+                z: z % CHUNK_SIZE,
+                chunk: this.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))!
+            });
+        }
     }
 
     getChunk(x: number, z: number): Chunk | undefined {
@@ -452,45 +584,6 @@ export class World {
                 return y;
             }
         }
-
-        // Start binary search from middle of world height
-        // let low = this.WORLD_MIN_Y;
-        // let high = this.WORLD_HEIGHT - 1;
-        // let lastSolidBlock = this.WORLD_MIN_Y - 1;
-
-        // // First check the middle section where terrain is most likely
-        // const mid = Math.floor((low + high) / 2);
-        // const block = chunk.getBlock(x, mid, z);
-
-        // // If block found at mid, search upwards from there
-        // if (block && block.id !== TEST_BLOCKS.air.id) {
-        //     low = mid;
-        // } else {
-        //     // If no block at mid, search downwards
-        //     high = mid;
-        // }
-
-        // // Binary search to find highest non-air block
-        // while (low <= high) {
-        //     const mid = Math.floor((low + high) / 2);
-        //     const block = chunk.getBlock(x, mid, z);
-        //     const blockAbove = chunk.getBlock(x, mid + 1, z);
-
-        //     // Found transition from solid to air
-        //     if (block && block.id !== TEST_BLOCKS.air.id &&
-        //         (!blockAbove || blockAbove.id === TEST_BLOCKS.air.id)) {
-        //         return mid;
-        //     }
-
-        //     // If current block is solid, look higher
-        //     if (block && block.id !== TEST_BLOCKS.air.id) {
-        //         lastSolidBlock = Math.max(lastSolidBlock, mid);
-        //         low = mid + 1;
-        //     } else {
-        //         // If current block is air, look lower
-        //         high = mid - 1;
-        //     }
-        // }
 
         return this.WORLD_MIN_Y;
     }
@@ -557,7 +650,7 @@ export class World {
             const block = chunk.getBlock(x, y, z);
             const lightLevel = getLightFn(chunk, x, y, z);
 
-            // If this is an opaque block and it's not the source of light, skip propagation
+            // Skip if this is an opaque block (unless it's a light source)
             if (block?.isOpaque && !block.isLightSource) {
                 continue;
             }
@@ -615,7 +708,10 @@ export class World {
                 const currentLight = getLightFn(targetChunk, targetX, newY, targetZ);
                 const newLight = filterFn(targetBlock, lightLevel);
 
-                if (currentLight < newLight) {
+                // Only propagate if:
+                // 1. Target block can accept light (not opaque or is a light source)
+                // 2. New light level would be higher than current
+                if ((!targetBlock?.isOpaque || targetBlock.isLightSource) && currentLight < newLight) {
                     setLightFn(targetChunk, targetX, newY, targetZ, newLight);
                     queue.push({
                         x: targetX,
