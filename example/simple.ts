@@ -1,7 +1,7 @@
-import { CHUNK_SIZE, TEST_BLOCKS, World } from '../../minecraft-lighting/src/engine'
+import { CHUNK_SIZE, TEST_BLOCKS, LightWorld } from '../../minecraft-lighting/src/engine'
 import { performance, PerformanceObserver } from 'perf_hooks';
 
-const world = new World();
+const world = new LightWorld();
 globalThis.world = world;
 
 const observer = new PerformanceObserver((list) => {

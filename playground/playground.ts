@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, MAX_LIGHT_LEVEL, TEST_BLOCKS, World } from '../src/engine'
+import { CHUNK_SIZE, MAX_LIGHT_LEVEL, TEST_BLOCKS, LightWorld } from '../src/engine'
 
 export {}
 
@@ -97,16 +97,17 @@ const loadStateFromURL = (): UIState => {
 
 const state: UIState = loadStateFromURL();
 
-let world: World
+let world: LightWorld
 const testCasePlain = () => {
     // Usage example:
-    world = new World();
+    world = new LightWorld();
     globalThis.world = world
 
     // Load chunk when needed
 
     // Place a light source
     world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone);
+    world.setBlock(5, 64, 5, TEST_BLOCKS.stone);
     // world.setBlockLight(5, 64, 5, 15);
 
     // world.calculateInitialSunLight(chunk);
@@ -114,7 +115,7 @@ const testCasePlain = () => {
 }
 
 const testCaseSimple = () => {
-    world = new World();
+    world = new LightWorld();
 
     world.setBlockLight(5, 64, 5, 15);
 
