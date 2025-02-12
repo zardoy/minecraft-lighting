@@ -1,358 +1,21 @@
-export const CHUNK_SIZE = 16;
-export const MAX_LIGHT_LEVEL = 15;
-
-globalThis._debug_get_block_count = 0
-
-// Types
-export interface Vector3 {
-    x: number;
-    y: number;
-    z: number;
-}
-
-export interface ChunkPosition {
-    x: number;
-    z: number;
-}
-
-export interface LightNode {
-    x: number;
-    y: number;
-    z: number;
-    chunk: Chunk;
-}
-
-export interface LightRemovalNode extends LightNode {
-    value: number;
-}
-
-export interface WorldBlock {
-    id: number;
-    isOpaque: boolean;
-    isLightSource: boolean;
-    lightEmission: number;
-    filterLight?: number
-}
-
-export const TEST_BLOCKS = {
-    stone: {
-        id: 1,
-        isOpaque: true,
-        isLightSource: false,
-        lightEmission: 0,
-        filterLight: 0
-    },
-    glowstone: {
-        id: 2,
-        isOpaque: false,
-        isLightSource: true,
-        lightEmission: 15,
-        filterLight: 0
-    },
-    glass: {
-        id: 20,
-        isOpaque: false,
-        isLightSource: false,
-        lightEmission: 0,
-        filterLight: 0
-    },
-    water: {
-        id: 8,
-        isOpaque: false,
-        isLightSource: false,
-        lightEmission: 0,
-        filterLight: 2
-    },
-    air: {
-        id: 0,
-        isOpaque: false,
-        isLightSource: false,
-        lightEmission: 0,
-        filterLight: 0
-    }
-} satisfies Record<string, WorldBlock>
-const TEST_BLOCKS_BY_ID = Object.entries(TEST_BLOCKS).reduce((acc, [key, block]) => {
-    acc[block.id] = block;
-    return acc;
-}, {} as Record<number, WorldBlock>);
-
-export class TestChunkSection {
-    private blocks: Uint8Array;
-    private lightData: Uint8Array;
-    private position: Vector3;
-    private isLoaded: boolean = false;
-
-    constructor(position: Vector3) {
-        this.position = position;
-        this.blocks = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE);
-        this.lightData = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE);
-    }
-
-    getBlock(x: number, y: number, z: number): WorldBlock {
-        globalThis._debug_get_block_count++
-        const index = this.getIndex(x, y, z);
-        const blockId = this.blocks[index];
-        if (!blockId) {
-            return {
-                id: 0,
-                isOpaque: false,
-                isLightSource: false,
-                lightEmission: 0
-            }
-        }
-        const BLOCK = TEST_BLOCKS_BY_ID[blockId];
-        if (!BLOCK) {
-            throw new Error(`Block ${blockId} not found`);
-        }
-        return {
-            id: blockId,
-            isOpaque: BLOCK.isOpaque,
-            isLightSource: BLOCK.isLightSource,
-            lightEmission: BLOCK.lightEmission
-        };
-    }
-
-    getBlockLight(x: number, y: number, z: number): number {
-        const index = this.getIndex(x, y, z);
-        return this.lightData[index]! & 0x0F;
-    }
-
-    getSunLight(x: number, y: number, z: number): number {
-        const index = this.getIndex(x, y, z);
-        return (this.lightData[index]! >> 4) & 0x0F;
-    }
-
-    setBlockLight(x: number, y: number, z: number, value: number): void {
-        const index = this.getIndex(x, y, z);
-        this.lightData[index] = (this.lightData[index]! & 0xF0) | (value & 0x0F);
-    }
-
-    setSunLight(x: number, y: number, z: number, value: number): void {
-        const index = this.getIndex(x, y, z);
-        this.lightData[index] = (this.lightData[index]! & 0x0F) | ((value & 0x0F) << 4);
-    }
-
-    setBlock(x: number, y: number, z: number, blockId: number): void {
-        const index = this.getIndex(x, y, z);
-        this.blocks[index] = blockId;
-    }
-
-    private getIndex(x: number, y: number, z: number): number {
-        return y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
-    }
-}
-
-interface Chunk {
-    position: ChunkPosition;
-    getBlock(x: number, y: number, z: number): WorldBlock | undefined;
-    getBlockLight(x: number, y: number, z: number): number;
-    setBlockLight(x: number, y: number, z: number, value: number): void;
-    getSunLight(x: number, y: number, z: number): number;
-    setSunLight(x: number, y: number, z: number, value: number): void;
-}
-
-export class TestChunk implements Chunk {
-    public sections: Map<number, TestChunkSection>;
-    public position: ChunkPosition;
-    public isLoaded: boolean = false;
-
-    constructor(position: ChunkPosition, public world?: ExternalWorld) {
-        this.position = position;
-        this.sections = new Map();
-    }
-
-    getSection(y: number): TestChunkSection {
-        if (!this.sections.has(y)) {
-            this.sections.set(y, new TestChunkSection({
-                x: this.position.x,
-                y,
-                z: this.position.z
-            }));
-        }
-        return this.sections.get(y)!;
-    }
-
-    getSectionNoCreate(y: number): TestChunkSection | undefined {
-        return this.sections.get(y);
-    }
-
-    getBlock(x: number, y: number, z: number): WorldBlock | undefined {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        const section = this.getSectionNoCreate(sectionY);
-        if (!section) return TEST_BLOCKS.air;
-        return section.getBlock(x, localY, z);
-    }
-
-    setBlock(x: number, y: number, z: number, blockId: number): void {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        this.getSection(sectionY).setBlock(x, localY, z, blockId);
-    }
-
-    getBlockLight(x: number, y: number, z: number): number {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        const section = this.getSectionNoCreate(sectionY);
-        if (!section) return 0;
-        return section.getBlockLight(x, localY, z);
-    }
-
-    setBlockLight(x: number, y: number, z: number, value: number): void {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        this.getSection(sectionY).setBlockLight(x, localY, z, value);
-    }
-
-    getSunLight(x: number, y: number, z: number): number {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        const section = this.getSectionNoCreate(sectionY);
-        if (!section) return 0;
-        return section.getSunLight(x, localY, z);
-    }
-
-    setSunLight(x: number, y: number, z: number, value: number): void {
-        const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
-        this.getSection(sectionY).setSunLight(x, localY, z, value);
-    }
-}
-
-interface LightProcessingQueue {
-    column: ChunkPosition;
-    priority: number;
-}
-
-export interface ExternalWorld {
-    WORLD_HEIGHT: number;
-    WORLD_MIN_Y: number;
-    SUPPORTS_SKY_LIGHT: boolean;
-
-    getBlock(x: number, y: number, z: number): WorldBlock | undefined;
-    setBlock(x: number, y: number, z: number, blockId: number): void;
-    getHighestBlockInColumn?(chunk: Chunk, x: number, z: number): number // use only if provided
-    getChunk(x: number, z: number): Chunk | undefined;
-    getBlockLight(x: number, y: number, z: number): number;
-    setBlockLight(x: number, y: number, z: number, value: number): void;
-    getSunLight(x: number, y: number, z: number): number;
-    setSunLight(x: number, y: number, z: number, value: number): void;
-    hasChunk?(x: number, z: number): boolean;
-}
-
-export class TestWorld implements ExternalWorld {
-    private chunks: Map<string, TestChunk> = new Map();
-    readonly WORLD_HEIGHT = 384;
-    readonly WORLD_MIN_Y = -64;
-    readonly SUPPORTS_SKY_LIGHT = false;
-
-    getBlock(x: number, y: number, z: number): WorldBlock | undefined {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return TEST_BLOCKS.air;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        return chunk.getBlock(localX, y, localZ);
-    }
-
-    setBlock(x: number, y: number, z: number, blockId: number): void {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        let chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) {
-            chunk = new TestChunk({ x: chunkX, z: chunkZ }, this);
-            this.setChunk(chunkX, chunkZ, chunk);
-        }
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        chunk.setBlock(localX, y, localZ, blockId);
-    }
-
-    getChunk(x: number, z: number): TestChunk | undefined {
-        return this.chunks.get(`${x},${z}`);
-    }
-
-    hasChunk(x: number, z: number): boolean {
-        return this.chunks.has(`${x},${z}`);
-    }
-
-    setChunk(x: number, z: number, chunk: TestChunk | undefined): void {
-        if (chunk) {
-            this.chunks.set(`${x},${z}`, chunk);
-        } else {
-            this.chunks.delete(`${x},${z}`);
-        }
-    }
-
-    getBlockLight(x: number, y: number, z: number): number {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return 0;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        return chunk.getBlockLight(localX, y, localZ);
-    }
-
-    setBlockLight(x: number, y: number, z: number, value: number): void {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        chunk.setBlockLight(localX, y, localZ, value);
-    }
-
-    getSunLight(x: number, y: number, z: number): number {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return 0;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        return chunk.getSunLight(localX, y, localZ);
-    }
-
-    setSunLight(x: number, y: number, z: number, value: number): void {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
-        chunk.setSunLight(localX, y, localZ, value);
-    }
-
-    // getHighestBlockInColumn(chunk: Chunk, x: number, z: number): number {
-    //     for (let y = this.WORLD_HEIGHT - 1; y >= this.WORLD_MIN_Y; y--) {
-    //         const block = chunk.getBlock(x, y, z);
-    //         if (block?.id !== TEST_BLOCKS.air.id) {
-    //             return y;
-    //         }
-    //     }
-    //     return this.WORLD_MIN_Y;
-    // }
-}
+import { LightNode, LightRemovalNode, CHUNK_SIZE, MAX_LIGHT_LEVEL, WorldBlock, ExternalWorld, TestWorld, ChunkPosition, GeneralChunk, TEST_BLOCKS } from './externalWorld';
 
 export class LightWorld {
     private sunLightQueue: LightNode[] = [];
     private blockLightQueue: LightNode[] = [];
     private lightRemovalQueue: LightRemovalNode[] = [];
     private pendingCrossChunkLight: Map<string, LightNode[]> = new Map();
-    private pendingLightUpdates: LightProcessingQueue[] = [];
+    private pendingLightUpdates: Map<string, {
+        terminate(): void;
+        column: ChunkPosition;
+        priority: number;
+        timestamp: number;
+    }> = new Map();
     private isProcessingLight = false;
     public performanceStats: Map<string, { calls: number, totalTime: number }> = new Map();
     private affectedChunksTimestamps: Map<string, number> = new Map();
 
-    constructor(private externalWorld: ExternalWorld = new TestWorld()) {}
+    constructor(public externalWorld: ExternalWorld = new TestWorld()) {}
 
     get WORLD_HEIGHT() {
         return this.externalWorld.WORLD_HEIGHT;
@@ -392,7 +55,7 @@ export class LightWorld {
         this.externalWorld.setSunLight(x, y, z, value);
     }
 
-    getHighestBlockInColumn(chunk: Chunk, x: number, z: number): number {
+    getHighestBlockInColumn(chunk: GeneralChunk, x: number, z: number): number {
         const highestBlockInColumn = this.externalWorld.getHighestBlockInColumn?.(chunk, x, z);
         if (highestBlockInColumn !== undefined) {
             return highestBlockInColumn;
@@ -507,7 +170,7 @@ export class LightWorld {
         globalX: number,
         y: number,
         globalZ: number
-    ): { chunk: Chunk | undefined; localX: number; localZ: number } {
+    ): { chunk: GeneralChunk | undefined; localX: number; localZ: number } {
         const chunkX = Math.floor(globalX / CHUNK_SIZE);
         const chunkZ = Math.floor(globalZ / CHUNK_SIZE);
 
@@ -638,8 +301,8 @@ export class LightWorld {
 
     private propagateGeneric(
         queue: LightNode[],
-        getLightFn: (chunk: Chunk, x: number, y: number, z: number) => number,
-        setLightFn: (chunk: Chunk, x: number, y: number, z: number, value: number) => void,
+        getLightFn: (chunk: GeneralChunk, x: number, y: number, z: number) => number,
+        setLightFn: (chunk: GeneralChunk, x: number, y: number, z: number, value: number) => void,
         filterFn: (block: WorldBlock | undefined, level: number) => number
     ): void {
         const processed = new Set<string>();
@@ -736,7 +399,7 @@ export class LightWorld {
         this.markEnd('propagateSunLight');
     }
 
-    calculateInitialSunLight(chunk: Chunk): void {
+    calculateInitialSunLight(chunk: GeneralChunk): void {
         // Start from the top of each column
         for (let x = 0; x < CHUNK_SIZE; x++) {
             for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -754,7 +417,7 @@ export class LightWorld {
         this.propagateSunLight();
     }
 
-    async receiveUpdateColumn(x: number, z: number): Promise<ChunkPosition[]> {
+    async receiveUpdateColumn(x: number, z: number): Promise<ChunkPosition[] | null> {
         const chunk = this.externalWorld.getChunk(x, z)!;
         if (!chunk) {
             throw new Error(`Chunk ${x},${z} not loaded yet`);
@@ -776,26 +439,37 @@ export class LightWorld {
             this.pendingCrossChunkLight.delete(key);
         }
 
+        // Add update to Map with timestamp
         const update = {
             column: { x, z },
-            priority: 1
+            priority: 1,
+            timestamp: Date.now(),
+            terminate: () => {}
         };
+        const currentUpdate = this.pendingLightUpdates.get(key);
+        if (currentUpdate) {
+            currentUpdate.terminate();
+        }
+        this.pendingLightUpdates.set(key, update);
 
-        this.pendingLightUpdates.push(update);
         if (!this.isProcessingLight) {
             void this.processLightQueue();
         }
 
-        await new Promise<void>(resolve => {
+        const res = await new Promise<boolean>(resolve => {
+            update.terminate = () => {
+                resolve(false);
+            }
             const checkComplete = () => {
-                if (!this.pendingLightUpdates.includes(update)) {
-                    resolve();
+                if (!this.pendingLightUpdates.has(key)) {
+                    resolve(true);
                 } else {
                     setTimeout(checkComplete, 10);
                 }
             };
             checkComplete();
-        });
+        })
+        if (!res) return null;
 
         // Get affected chunks that were modified after operation start
         const affectedChunks = Array.from(this.affectedChunksTimestamps.entries())
@@ -813,14 +487,29 @@ export class LightWorld {
         this.isProcessingLight = true;
 
         try {
-            while (this.pendingLightUpdates.length > 0) {
-                const update = this.pendingLightUpdates.shift()!;
+            // Convert Map to array and sort by priority/timestamp if needed
+            const updates = Array.from(this.pendingLightUpdates.entries());
+
+            for (const [key, update] of updates) {
+                // Check if this update has been superseded
+                const currentUpdate = this.pendingLightUpdates.get(key);
+                if (!currentUpdate || currentUpdate.timestamp !== update.timestamp) {
+                    // Skip this update as a newer one exists
+                    continue;
+                }
+
                 const { column } = update;
                 const chunk = this.externalWorld.getChunk(column.x, column.z);
                 if (!chunk) continue;
 
                 await this.processSunlightForChunk(chunk);
                 await this.processTorchlightForChunk(chunk);
+
+                // Remove this update only if it hasn't been superseded
+                if (this.pendingLightUpdates.get(key)?.timestamp === update.timestamp) {
+                    this.pendingLightUpdates.delete(key);
+                }
+
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         } finally {
@@ -831,7 +520,7 @@ export class LightWorld {
         }
     }
 
-    private async processSunlightForChunk(chunk: Chunk): Promise<void> {
+    private async processSunlightForChunk(chunk: GeneralChunk): Promise<void> {
         if (!this.externalWorld.SUPPORTS_SKY_LIGHT) {
             return;
         }
@@ -857,7 +546,7 @@ export class LightWorld {
         this.markEnd('processSunlightForChunk');
     }
 
-    private async processTorchlightForChunk(chunk: Chunk): Promise<void> {
+    private async processTorchlightForChunk(chunk: GeneralChunk): Promise<void> {
         this.markStart('processTorchlightForChunk');
         // Find all light sources in chunk
         for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -884,7 +573,7 @@ export class LightWorld {
         this.markEnd('processTorchlightForChunk');
     }
 
-    private addPendingLight(x: number, y: number, z: number, chunk: Chunk) {
+    private addPendingLight(x: number, y: number, z: number, chunk: GeneralChunk) {
         const { chunk: targetChunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
         const chunkX = Math.floor(x / CHUNK_SIZE);
         const chunkZ = Math.floor(z / CHUNK_SIZE);
@@ -912,8 +601,8 @@ export class LightWorld {
 
     getLightLevelsString(xStart: number, zStart: number, y: number, xSize: number, zSize: number, type: 'blockLight' | 'skyLight'): string {
         const getLightFn = type === 'blockLight'
-            ? (chunk: Chunk, x: number, y: number, z: number) => chunk.getBlockLight(x, y, z)
-            : (chunk: Chunk, x: number, y: number, z: number) => chunk.getSunLight(x, y, z);
+            ? (chunk: GeneralChunk, x: number, y: number, z: number) => chunk.getBlockLight(x, y, z)
+            : (chunk: GeneralChunk, x: number, y: number, z: number) => chunk.getSunLight(x, y, z);
 
         const rows: string[] = [];
 

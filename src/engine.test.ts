@@ -1,5 +1,16 @@
 import { describe, test, expect } from 'vitest'
-import { LightWorld, TEST_BLOCKS, CHUNK_SIZE } from './engine'
+import { LightWorld } from './engine'
+import { TEST_BLOCKS, CHUNK_SIZE } from './externalWorld'
+import minecraftData from 'minecraft-data'
+import { Vec3 } from 'vec3'
+import { createLightEngineForSyncWorld } from './prismarineShim'
+import { getSyncWorld } from './world'
+
+const mcData = minecraftData('1.19.4')
+const getSyncWorldTest = () => {
+  const syncWorld = getSyncWorld('1.19.4')
+  return syncWorld
+}
 
 const getTestLightLevels = (world: LightWorld, isSkyLight: boolean = false, x: number = 0, z: number = 0) => {
     const lightLevels = world.getLightLevelsString(x, z, 64, 10, 10, isSkyLight ? 'skyLight' : 'blockLight')
@@ -31,7 +42,7 @@ describe('Block Light', () => {
         `)
     })
 
-    test.only('single glowstone block light propagation negative x,z', () => {
+    test('single glowstone block light propagation negative x,z', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
@@ -173,6 +184,33 @@ describe('Block Light', () => {
           |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |"
         `)
     })
+})
+
+describe('External world sync prismarine integration', () => {
+  test.skip('single glowstone block light propagation', async () => {
+    const syncWorldTest = getSyncWorldTest();
+    const { lightWorld, externalWorld } = createLightEngineForSyncWorld(syncWorldTest, mcData)
+
+    syncWorldTest.setBlockStateId(new Vec3(5, 64, 5), mcData.blocksByName['glowstone']!.defaultState)
+
+    await lightWorld.receiveUpdateColumn(0, 0)
+
+    // Get a slice of light levels around the glowstone
+    const lightLevels = getTestLightLevels(lightWorld)
+    expect(lightLevels).toMatchInlineSnapshot(`
+      "  5 |  6 |  7 |  8 |  9 | 10 |  9 |  8 |  7 |  6 |  5 |
+      |  6 |  7 |  8 |  9 | 10 | 11 | 10 |  9 |  8 |  7 |  6 |
+      |  7 |  8 |  9 | 10 | 11 | 12 | 11 | 10 |  9 |  8 |  7 |
+      |  8 |  9 | 10 | 11 | 12 | 13 | 12 | 11 | 10 |  9 |  8 |
+      |  9 | 10 | 11 | 12 | 13 | 14 | 13 | 12 | 11 | 10 |  9 |
+      | 10 | 11 | 12 | 13 | 14 | 15 | 14 | 13 | 12 | 11 | 10 |
+      |  9 | 10 | 11 | 12 | 13 | 14 | 13 | 12 | 11 | 10 |  9 |
+      |  8 |  9 | 10 | 11 | 12 | 13 | 12 | 11 | 10 |  9 |  8 |
+      |  7 |  8 |  9 | 10 | 11 | 12 | 11 | 10 |  9 |  8 |  7 |
+      |  6 |  7 |  8 |  9 | 10 | 11 | 10 |  9 |  8 |  7 |  6 |
+      |  5 |  6 |  7 |  8 |  9 | 10 |  9 |  8 |  7 |  6 |  5 |"
+    `)
+  })
 })
 
 describe.todo('Sky Light', () => {
