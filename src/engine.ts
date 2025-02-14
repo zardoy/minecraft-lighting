@@ -541,10 +541,21 @@ export class LightWorld {
         // Calculate initial sunlight
         for (let x = 0; x < CHUNK_SIZE; x++) {
             for (let z = 0; z < CHUNK_SIZE; z++) {
-                let y = this.getHighestBlockInColumn(chunk, x, z) + 1;
+                let y = this.getHighestBlockInColumn(chunk, x, z);
                 let sunLightLevel = MAX_LIGHT_LEVEL;
 
-                while (y > this.WORLD_MIN_Y) {
+                // Set max sunlight above highest block
+                for (let cy = y + 1; cy < this.WORLD_HEIGHT; cy++) {
+                    const globalX = chunk.position.x * CHUNK_SIZE + x;
+                    const globalZ = chunk.position.z * CHUNK_SIZE + z;
+                    this.setSunLight(globalX, cy, globalZ, MAX_LIGHT_LEVEL);
+
+                    // Add to queue to allow horizontal propagation at all heights
+                    // this.sunLightQueue.push({ x, y: cy, z, chunk });
+                }
+
+                // Continue down from highest block
+                while (y >= this.WORLD_MIN_Y) {
                     const block = chunk.getBlock(x, y, z);
                     if (block?.isOpaque) break;
 
@@ -555,14 +566,18 @@ export class LightWorld {
                     const globalX = chunk.position.x * CHUNK_SIZE + x;
                     const globalZ = chunk.position.z * CHUNK_SIZE + z;
                     this.setSunLight(globalX, y, globalZ, sunLightLevel);
+
+                    // Always add to queue to allow horizontal propagation
                     this.sunLightQueue.push({ x, y, z, chunk });
                     y--;
                 }
 
                 // Set light level for the opaque block we stopped at
-                const globalX = chunk.position.x * CHUNK_SIZE + x;
-                const globalZ = chunk.position.z * CHUNK_SIZE + z;
-                this.setSunLight(globalX, y, globalZ, sunLightLevel);
+                if (y >= this.WORLD_MIN_Y) {
+                    const globalX = chunk.position.x * CHUNK_SIZE + x;
+                    const globalZ = chunk.position.z * CHUNK_SIZE + z;
+                    this.setSunLight(globalX, y, globalZ, 0);
+                }
             }
         }
 

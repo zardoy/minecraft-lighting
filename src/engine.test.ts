@@ -189,7 +189,7 @@ describe('Block Light', () => {
 describe('External world sync prismarine integration', () => {
   test.skip('single glowstone block light propagation', async () => {
     const syncWorldTest = getSyncWorldTest();
-    const { lightWorld, externalWorld } = createLightEngineForSyncWorld(syncWorldTest, mcData)
+    const  lightWorld  = createLightEngineForSyncWorld(syncWorldTest, mcData)
 
     syncWorldTest.setBlockStateId(new Vec3(5, 64, 5), mcData.blocksByName['glowstone']!.defaultState)
 

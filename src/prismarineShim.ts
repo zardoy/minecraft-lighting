@@ -1,6 +1,7 @@
 import { world } from 'prismarine-world'
 import { Vec3 } from 'vec3'
-import { LightWorld, ExternalWorld, WorldBlock } from './engine'
+import { LightWorld } from './engine'
+import { WorldBlock, ExternalWorld } from './externalWorld'
 
 interface WorldOptions {
     height?: number
@@ -8,17 +9,23 @@ interface WorldOptions {
     enableSkyLight?: boolean
 }
 
-export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: any, options: WorldOptions = {}) => {
-    const transformBlock = (block: any): WorldBlock => {
-        const blockData = mcData.blocks[block.type]
-        return {
-            id: block.type,
-            isOpaque: !block.transparent,
-            isLightSource: blockData.emitLight > 0,
-            lightEmission: blockData.emitLight ?? 0,
-            filterLight: blockData.filterLight ?? 1,
-        }
+export const convertPrismarineBlockToWorldBlock = (block: any, mcData: any): WorldBlock => {
+    const blockData = mcData.blocks[block.type]
+    let emitLight = blockData.emitLight;
+    // todo
+    if (block.name === 'redstone_ore') {
+        emitLight = 0;
     }
+    return {
+        id: block.type,
+        isOpaque: !block.transparent,
+        isLightSource: emitLight > 0,
+        lightEmission: emitLight ?? 0,
+        filterLight: blockData.filterLight ?? 1,
+    }
+}
+
+export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: any, options: WorldOptions = {}) => {
     const externalWorld: ExternalWorld = {
         SUPPORTS_SKY_LIGHT: options.enableSkyLight ?? true,
         WORLD_HEIGHT: options.height ?? 256,
@@ -26,7 +33,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
         getBlock(x, y, z) {
             const block = world.getBlock(new Vec3(x, y, z))
             if (!block) return undefined
-            return transformBlock(block)
+            return convertPrismarineBlockToWorldBlock(block, mcData)
         },
         setBlock(x, y, z, blockId) {
             throw new Error('Not implemented')
@@ -39,7 +46,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
                 getBlock: (x, y, z) => {
                     const block = world.getBlock(new Vec3(x, y, z))
                     if (!block) return undefined
-                    return transformBlock(block)
+                    return convertPrismarineBlockToWorldBlock(block, mcData)
                 },
                 getBlockLight(x, y, z) {
                     return world.getBlockLight(new Vec3(x, y, z))

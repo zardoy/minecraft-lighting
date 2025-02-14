@@ -10,8 +10,9 @@ const data = minecraftData(version)
 const main = async () => {
     syncWorld.setBlockStateId(new Vec3(1, 0, 0), data.blocksByName['glowstone']!.defaultState)
 
-    const { lightWorld, externalWorld } = createLightEngineForSyncWorld(syncWorld, data)
-    await lightWorld.receiveUpdateColumn(0, 0)
+    const  lightWorld  = createLightEngineForSyncWorld(syncWorld, data)
+    const affected = await lightWorld.receiveUpdateColumn(0, 0)
+    console.log('affected', affected)
     console.log(lightWorld.getBlockLight(0, 0, 1))
     console.log(lightWorld.getPerformanceStats())
 }
