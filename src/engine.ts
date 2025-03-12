@@ -14,6 +14,7 @@ export class LightWorld {
     private isProcessingLight = false;
     public performanceStats: Map<string, { calls: number, totalTime: number }> = new Map();
     private affectedChunksTimestamps: Map<string, number> = new Map();
+    public onChunkProcessed = [] as ((chunkX: number, chunkZ: number) => void)[];
 
     constructor(public externalWorld: ExternalWorld = new TestWorld()) {}
 
@@ -430,6 +431,7 @@ export class LightWorld {
     // }
 
     async receiveUpdateColumn(x: number, z: number): Promise<ChunkPosition[] | null> {
+        this.affectedChunksTimestamps.clear();
         const chunk = this.externalWorld.getChunk(x, z)!;
         if (!chunk) {
             throw new Error(`Chunk ${x},${z} not loaded yet`);
@@ -491,6 +493,10 @@ export class LightWorld {
                 return { x: chunkX, z: chunkZ };
             });
 
+        for (const chunk of affectedChunks) {
+            this.onChunkProcessed.forEach(fn => fn(chunk.x, chunk.z));
+        }
+
         return affectedChunks;
     }
 
@@ -525,8 +531,6 @@ export class LightWorld {
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         } finally {
-            // Clear timestamps when all processing is done
-            this.affectedChunksTimestamps.clear();
             this.isProcessingLight = false;
             this.markEnd('processLightQueue');
         }
