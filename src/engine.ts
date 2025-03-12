@@ -158,7 +158,7 @@ export class LightWorld {
                 this.unPropagateLight();
             }
             if (this.blockLightQueue.length > 0) {
-                this.propagateLight();
+                this.propagateBlockLight();
             }
             if (this.sunLightQueue.length > 0) {
                 this.propagateSunLight();
@@ -389,7 +389,7 @@ export class LightWorld {
         }
     }
 
-    public propagateLight(): void {
+    public propagateBlockLight(): void {
         this.markStart('propagateLight');
         this.propagateGeneric(
             this.blockLightQueue,
@@ -609,7 +609,7 @@ export class LightWorld {
         }
 
         // Propagate torch light
-        await this.propagateLight();
+        await this.propagateBlockLight();
         this.markEnd('processTorchlightForChunk');
     }
 
@@ -649,12 +649,8 @@ export class LightWorld {
         for (let z = zStart; z <= zStart + zSize; z++) {
             const row: string[] = [];
             for (let x = xStart; x <= xStart + xSize; x++) {
-                const chunkX = Math.floor(x / CHUNK_SIZE);
-                const chunkZ = Math.floor(z / CHUNK_SIZE);
-                const localX = x % CHUNK_SIZE;
-                const localZ = z % CHUNK_SIZE;
+                const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
 
-                const chunk = this.externalWorld.getChunk(chunkX, chunkZ);
                 const lightLevel = chunk ? getLightFn(chunk, localX, y, localZ) : '--';
                 row.push(lightLevel.toString().padStart(2, ' '));
             }

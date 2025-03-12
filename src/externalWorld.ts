@@ -177,7 +177,7 @@ export class TestChunk implements GeneralChunk {
     getBlock(x: number, y: number, z: number): WorldBlock | undefined {
         this._debug_get_block_count++
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         const section = this.getSectionNoCreate(sectionY);
         if (!section) return TEST_BLOCKS.air;
         return section.getBlock(x, localY, z);
@@ -185,13 +185,13 @@ export class TestChunk implements GeneralChunk {
 
     setBlock(x: number, y: number, z: number, blockId: number): void {
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         this.getSection(sectionY).setBlock(x, localY, z, blockId);
     }
 
     getBlockLight(x: number, y: number, z: number): number {
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         const section = this.getSectionNoCreate(sectionY);
         if (!section) return 0;
         return section.getBlockLight(x, localY, z);
@@ -199,13 +199,13 @@ export class TestChunk implements GeneralChunk {
 
     setBlockLight(x: number, y: number, z: number, value: number): void {
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         this.getSection(sectionY).setBlockLight(x, localY, z, value);
     }
 
     getSunLight(x: number, y: number, z: number): number {
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         const section = this.getSectionNoCreate(sectionY);
         if (!section) return 0;
         return section.getSunLight(x, localY, z);
@@ -213,7 +213,7 @@ export class TestChunk implements GeneralChunk {
 
     setSunLight(x: number, y: number, z: number, value: number): void {
         const sectionY = Math.floor(y / CHUNK_SIZE);
-        const localY = y % CHUNK_SIZE;
+        const localY = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
         this.getSection(sectionY).setSunLight(x, localY, z, value);
     }
 }
@@ -240,28 +240,37 @@ export class TestWorld implements ExternalWorld {
     readonly WORLD_MIN_Y = -64;
     readonly SUPPORTS_SKY_LIGHT = false;
 
-    getBlock(x: number, y: number, z: number): WorldBlock | undefined {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return TEST_BLOCKS.air;
+    private getChunkAndLocalCoord(
+        globalX: number,
+        y: number,
+        globalZ: number
+    ): { chunk: GeneralChunk | undefined; localX: number; localZ: number } {
+        const chunkX = Math.floor(globalX / CHUNK_SIZE);
+        const chunkZ = Math.floor(globalZ / CHUNK_SIZE);
 
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
+        const localX = ((globalX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        const localZ = ((globalZ % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+        const chunk = this.getChunk(chunkX, chunkZ);
+        return { chunk, localX, localZ };
+    }
+
+    getBlock(x: number, y: number, z: number): WorldBlock | undefined {
+        const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
+        if (!chunk) return TEST_BLOCKS.air;
         return chunk.getBlock(localX, y, localZ);
     }
 
     setBlock(x: number, y: number, z: number, blockId: number): void {
         const chunkX = Math.floor(x / CHUNK_SIZE);
         const chunkZ = Math.floor(z / CHUNK_SIZE);
-        let chunk = this.getChunk(chunkX, chunkZ);
+        let chunk = this.getChunk(chunkX, chunkZ) as TestChunk;
         if (!chunk) {
             chunk = new TestChunk({ x: chunkX, z: chunkZ }, this);
             this.setChunk(chunkX, chunkZ, chunk);
         }
 
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
+        const { localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
         chunk.setBlock(localX, y, localZ, blockId);
     }
 
@@ -282,46 +291,26 @@ export class TestWorld implements ExternalWorld {
     }
 
     getBlockLight(x: number, y: number, z: number): number {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
+        const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
         if (!chunk) return 0;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
         return chunk.getBlockLight(localX, y, localZ);
     }
 
     setBlockLight(x: number, y: number, z: number, value: number): void {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
-        if (!chunk) return
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
+        const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
+        if (!chunk) return;
         chunk.setBlockLight(localX, y, localZ, value);
     }
 
     getSunLight(x: number, y: number, z: number): number {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
+        const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
         if (!chunk) return 0;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
         return chunk.getSunLight(localX, y, localZ);
     }
 
     setSunLight(x: number, y: number, z: number, value: number): void {
-        const chunkX = Math.floor(x / CHUNK_SIZE);
-        const chunkZ = Math.floor(z / CHUNK_SIZE);
-        const chunk = this.getChunk(chunkX, chunkZ);
+        const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
         if (!chunk) return;
-
-        const localX = x % CHUNK_SIZE;
-        const localZ = z % CHUNK_SIZE;
         chunk.setSunLight(localX, y, localZ, value);
     }
 }

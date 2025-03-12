@@ -16,13 +16,15 @@ export const convertPrismarineBlockToWorldBlock = (block: any, mcData: any): Wor
     if (block.name === 'redstone_ore') {
         emitLight = 0;
     }
-    return {
+    const worldBlock = {
+        name: block.name,
         id: block.type,
         isOpaque: !block.transparent,
         isLightSource: emitLight > 0,
         lightEmission: emitLight ?? 0,
         filterLight: blockData.filterLight ?? 1,
     }
+    return worldBlock
 }
 
 export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: any, options: WorldOptions = {}) => {
@@ -38,27 +40,28 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
         setBlock(x, y, z, blockId) {
             throw new Error('Not implemented')
         },
-        getChunk(x, z) {
-            const chunk = world.getColumn(x, z)
+        getChunk(chunkX, chunkZ) {
+            const chunk = world.getColumn(chunkX, chunkZ)
             if (!chunk) return undefined
+            const chunkPosStart = new Vec3(chunkX * 16, 0, chunkZ * 16)
             return {
-                position: { x, z },
+                position: { x: chunkX, z: chunkZ },
                 getBlock: (x, y, z) => {
-                    const block = world.getBlock(new Vec3(x, y, z))
+                    const block = world.getBlock(chunkPosStart.offset(x, y, z))
                     if (!block) return undefined
                     return convertPrismarineBlockToWorldBlock(block, mcData)
                 },
-                getBlockLight(x, y, z) {
-                    return world.getBlockLight(new Vec3(x, y, z))
+                getBlockLight: (x, y, z) => {
+                    return world.getBlockLight(chunkPosStart.offset(x, y, z))
                 },
-                setBlockLight(x, y, z, value) {
-                    world.setBlockLight(new Vec3(x, y, z), value)
+                setBlockLight: (x, y, z, value) => {
+                    world.setBlockLight(chunkPosStart.offset(x, y, z), value)
                 },
-                getSunLight(x, y, z) {
-                    return world.getSkyLight(new Vec3(x, y, z))
+                getSunLight: (x, y, z) => {
+                    return world.getSkyLight(chunkPosStart.offset(x, y, z))
                 },
-                setSunLight(x, y, z, value) {
-                    world.setSkyLight(new Vec3(x, y, z), value)
+                setSunLight: (x, y, z, value) => {
+                    world.setSkyLight(chunkPosStart.offset(x, y, z), value)
                 },
             }
         },
@@ -79,4 +82,14 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
         },
     }
     return new LightWorld(externalWorld)
+}
+
+export const fillColumnWithZeroLight = (world: ExternalWorld, startChunkX: number, startChunkZ: number) => {
+    for (let x = startChunkX * 16; x < (startChunkX + 1) * 16; x++) {
+        for (let z = startChunkZ * 16; z < (startChunkZ + 1) * 16; z++) {
+            for (let y = world.WORLD_MIN_Y; y < world.WORLD_HEIGHT; y++) {
+                world.setBlockLight(x, y, z, 0)
+            }
+        }
+    }
 }
