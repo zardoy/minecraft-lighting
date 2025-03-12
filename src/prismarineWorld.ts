@@ -4,7 +4,7 @@ import { Vec3 } from 'vec3'
 import minecraftData from 'minecraft-data'
 import { createLightEngineForSyncWorld } from './prismarineShim'
 
-export const getSyncWorld = (version: string): world.WorldSync => {
+export const getPrismarineSyncWorld = (version: string): world.WorldSync => {
     const World = (WorldLoader as any)(version)
     const Chunk = (ChunkLoader as any)(version)
 

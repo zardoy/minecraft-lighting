@@ -1,12 +1,12 @@
 import { Vec3 } from 'vec3';
 import { LightWorld } from "./engine";
 import { TEST_BLOCKS } from './externalWorld';
-import { getSyncWorld } from "./world";
+import { getPrismarineSyncWorld } from "./prismarineWorld";
 import minecraftData from 'minecraft-data'
 import { createLightEngineForSyncWorld } from './prismarineShim';
 
 const version = '1.20.4';
-const syncWorld = getSyncWorld(version)
+const syncWorld = getPrismarineSyncWorld(version)
 const data = minecraftData(version)
 
 export const testCases = {

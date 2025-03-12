@@ -1,5 +1,5 @@
-import { CHUNK_SIZE, MAX_LIGHT_LEVEL, TEST_BLOCKS, LightWorld } from '../src/engine'
-
+import { LightWorld } from '../src/engine'
+import { CHUNK_SIZE, MAX_LIGHT_LEVEL, TEST_BLOCKS } from '../src/externalWorld'
 export {}
 
 // UI State
@@ -119,7 +119,7 @@ const testCaseSimple = () => {
 
     world.setBlockLight(5, 64, 5, 15);
 
-    world.propagateLight()
+    world.propagateBlockLight()
 }
 
 const testCase = () => {
@@ -332,7 +332,7 @@ const updateBlockAndLight = (x: number, y: number, z: number, blockId: number | 
         if (oldBlock?.isLightSource) {
             // If removing a light source, we need to remove its light first
             world.setBlockLight(x, y, z, 0);
-            world.propagateLight();
+            world.propagateBlockLight();
         }
         world.setBlock(x, y, z, TEST_BLOCKS.air);
     } else {

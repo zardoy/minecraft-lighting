@@ -4,11 +4,11 @@ import { TEST_BLOCKS, CHUNK_SIZE } from './externalWorld'
 import minecraftData from 'minecraft-data'
 import { Vec3 } from 'vec3'
 import { createLightEngineForSyncWorld } from './prismarineShim'
-import { getSyncWorld } from './world'
+import { getPrismarineSyncWorld } from './prismarineWorld'
 
 const mcData = minecraftData('1.19.4')
 const getSyncWorldTest = () => {
-  const syncWorld = getSyncWorld('1.19.4')
+  const syncWorld = getPrismarineSyncWorld('1.19.4')
   return syncWorld
 }
 
