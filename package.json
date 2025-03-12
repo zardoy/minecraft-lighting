@@ -2,6 +2,11 @@
     "name": "minecraft-lighting",
     "version": "0.0.0",
     "license": "MIT",
+    "files": [
+        "dist"
+    ],
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "scripts": {
         "build": "tsc",
         "watch": "tsc --watch",
