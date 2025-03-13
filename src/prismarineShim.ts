@@ -69,13 +69,19 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
             return world.getBlockLight(new Vec3(x, y, z))
         },
         setBlockLight(x, y, z, value) {
+            const oldEmit = world['_emitBlockUpdate']
+            world['_emitBlockUpdate'] = () => { }
             world.setBlockLight(new Vec3(x, y, z), value)
+            world['_emitBlockUpdate'] = oldEmit
         },
         getSunLight(x, y, z) {
             return world.getSkyLight(new Vec3(x, y, z))
         },
         setSunLight(x, y, z, value) {
+            const oldEmit = world['_emitBlockUpdate']
+            world['_emitBlockUpdate'] = () => { }
             world.setSkyLight(new Vec3(x, y, z), value)
+            world['_emitBlockUpdate'] = oldEmit
         },
         hasChunk(x, z) {
             return !!world.getColumn(x, z)
