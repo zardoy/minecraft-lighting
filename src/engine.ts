@@ -4,7 +4,7 @@ export class LightWorld {
     private sunLightQueue: LightNode[] = [];
     private blockLightQueue: LightNode[] = [];
     private lightRemovalQueue: LightRemovalNode[] = [];
-    private pendingCrossChunkLight: Map<string, LightNode[]> = new Map();
+    // private pendingCrossChunkLight: Map<string, LightNode[]> = new Map();
     private pendingLightUpdates: Map<string, {
         terminate(): void;
         column: ChunkPosition;
@@ -442,16 +442,16 @@ export class LightWorld {
 
         // Process pending lights...
         const key = this.getChunkKey(x, z);
-        const pendingLights = this.pendingCrossChunkLight.get(key) || [];
-        if (pendingLights.length > 0) {
-            this.blockLightQueue.push(...pendingLights.map(pos => ({
-                x: pos.x,
-                y: pos.y,
-                z: pos.z,
-                chunk
-            })));
-            this.pendingCrossChunkLight.delete(key);
-        }
+        // const pendingLights = this.pendingCrossChunkLight.get(key) || [];
+        // if (pendingLights.length > 0 && false) {
+        //     this.blockLightQueue.push(...pendingLights.map(pos => ({
+        //         x: pos.x,
+        //         y: pos.y,
+        //         z: pos.z,
+        //         chunk
+        //     })));
+        //     this.pendingCrossChunkLight.delete(key);
+        // }
 
         // Add update to Map with timestamp
         const update = {
@@ -623,11 +623,12 @@ export class LightWorld {
         const chunkZ = Math.floor(z / CHUNK_SIZE);
         const key = this.getChunkKey(chunkX, chunkZ);
 
-        if (!this.pendingCrossChunkLight.has(key)) {
-            this.pendingCrossChunkLight.set(key, []);
-        }
+        // if (!this.pendingCrossChunkLight.has(key)) {
+        //     this.pendingCrossChunkLight.set(key, []);
+        // }
 
-        this.pendingCrossChunkLight.get(key)!.push({ x: localX, y, z: localZ, chunk });
+        // this.pendingCrossChunkLight.get(key)!.push({ x: localX, y, z: localZ, chunk });
+        throw new Error('Not implemented')
     }
 
     private filterLight(block: WorldBlock | undefined, lightLevel: number): number {
@@ -668,18 +669,18 @@ export class LightWorld {
     columnCleanup(x: number, z: number): void {
         const key = this.getChunkKey(x, z);
         // Remove any pending light propagation for this chunk
-        this.pendingCrossChunkLight.delete(key);
+        // this.pendingCrossChunkLight.delete(key);
 
         // Also remove any pending propagation targeting this chunk's neighbors
-        const neighborKeys = [
-            this.getChunkKey(x - 1, z),
-            this.getChunkKey(x + 1, z),
-            this.getChunkKey(x, z - 1),
-            this.getChunkKey(x, z + 1)
-        ];
+        // const neighborKeys = [
+        //     this.getChunkKey(x - 1, z),
+        //     this.getChunkKey(x + 1, z),
+        //     this.getChunkKey(x, z - 1),
+        //     this.getChunkKey(x, z + 1)
+        // ];
 
-        for (const neighborKey of neighborKeys) {
-            this.pendingCrossChunkLight.delete(neighborKey);
-        }
+        // for (const neighborKey of neighborKeys) {
+        //     this.pendingCrossChunkLight.delete(neighborKey);
+        // }
     }
 }

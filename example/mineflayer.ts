@@ -24,7 +24,9 @@ bot.on('login', () => {
     const calculateLightChunk = async (pos: Vec3) => {
         const chunkX = Math.floor(pos.x / 16)
         const chunkZ = Math.floor(pos.z / 16)
-        const affectedChunks = await lightWorld.receiveUpdateColumn(chunkX, chunkZ)
+        fillColumnWithZeroLight(lightWorld.externalWorld, chunkX, chunkZ)
+        
+        const affectedChunks = (await lightWorld.receiveUpdateColumn(chunkX, chunkZ)) ?? []
         onChunkReady(chunkX, chunkZ)
         for (const chunk of affectedChunks) {
             if (bot.world.getColumn(chunk.x, chunk.z)) {
@@ -35,12 +37,20 @@ bot.on('login', () => {
             }
         }
     }
-    bot.on('chunkColumnLoad', (pos) => {
-        const chunkX = Math.floor(pos.x / 16)
-        const chunkZ = Math.floor(pos.z / 16)
-        fillColumnWithZeroLight(lightWorld.externalWorld, chunkX, chunkZ)
-        promises.push(calculateLightChunk(pos))
+    const gotChunkOverNetwork = (chunkX: number, chunkZ: number) => {
+        calculateLightChunk(new Vec3(chunkX * 16, 0, chunkZ * 16))
+    }
+    bot._client.on('map_chunk', ({ x, z }) => gotChunkOverNetwork(x, z))
+    bot._client.on('map_chunk_bulk', ({ meta }) => {
+        for (const chunk of meta) {
+            gotChunkOverNetwork(chunk.x, chunk.z)
+        }
     })
+    // bot.on('chunkColumnLoad', (pos) => {
+    //     const chunkX = Math.floor(pos.x / 16)
+    //     const chunkZ = Math.floor(pos.z / 16)
+    //     promises.push(calculateLightChunk(pos))
+    // })
     bot.waitForChunksToLoad().then(async () => {
         console.log('chunks loaded')
         await Promise.all(promises)

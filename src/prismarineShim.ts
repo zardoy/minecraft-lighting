@@ -1,7 +1,9 @@
 import { world } from 'prismarine-world'
+import PrismarineChunk from 'prismarine-chunk'
 import { Vec3 } from 'vec3'
 import { LightWorld } from './engine'
 import { WorldBlock, ExternalWorld } from './externalWorld'
+import { IndexedData } from 'minecraft-data'
 
 interface WorldOptions {
     height?: number
@@ -27,11 +29,14 @@ export const convertPrismarineBlockToWorldBlock = (block: any, mcData: any): Wor
     return worldBlock
 }
 
-export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: any, options: WorldOptions = {}) => {
+export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: IndexedData, options: WorldOptions = {}) => {
+    const Chunk = PrismarineChunk(mcData.version.minecraftVersion!)
+    const WORLD_HEIGHT = options.height ?? 256
+    const WORLD_MIN_Y = options.minY ?? -64
     const externalWorld: ExternalWorld = {
         SUPPORTS_SKY_LIGHT: options.enableSkyLight ?? true,
-        WORLD_HEIGHT: options.height ?? 256,
-        WORLD_MIN_Y: options.minY ?? -64,
+        WORLD_HEIGHT: WORLD_HEIGHT,
+        WORLD_MIN_Y: WORLD_MIN_Y,
         getBlock(x, y, z) {
             const block = world.getBlock(new Vec3(x, y, z))
             if (!block) return undefined
@@ -41,11 +46,21 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
             throw new Error('Not implemented')
         },
         getChunk(chunkX, chunkZ) {
-            const chunk = world.getColumn(chunkX, chunkZ)
-            if (!chunk) return undefined
+            let chunk = world.getColumn(chunkX, chunkZ)
+            if (!chunk) {
+                chunk = new Chunk({ x: chunkX, z: chunkZ, minY: WORLD_MIN_Y, worldHeight: WORLD_HEIGHT })
+                world.setColumn(chunkX, chunkZ, chunk, false)
+                const oldLoad = chunk['load'].bind(chunk)
+                // chunk['load'] = (...args) => {
+                //     // oldLoad(...args)
+                // }
+            }
+            // dont waste time parsing lights since we do them ourselves
+            chunk['loadParsedLight'] = () => { }
             const chunkPosStart = new Vec3(chunkX * 16, 0, chunkZ * 16)
             return {
                 position: { x: chunkX, z: chunkZ },
+                hasLightFromEngine: chunk['hasLightFromEngine'],
                 getBlock: (x, y, z) => {
                     const block = world.getBlock(chunkPosStart.offset(x, y, z))
                     if (!block) return undefined
@@ -55,6 +70,11 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
                     return world.getBlockLight(chunkPosStart.offset(x, y, z))
                 },
                 setBlockLight: (x, y, z, value) => {
+                    if (value) {
+                        chunk['hasLightFromEngine'] = true
+                    }
+                    chunkX
+                    chunkZ
                     world.setBlockLight(chunkPosStart.offset(x, y, z), value)
                 },
                 getSunLight: (x, y, z) => {
@@ -91,6 +111,10 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: an
 }
 
 export const fillColumnWithZeroLight = (world: ExternalWorld, startChunkX: number, startChunkZ: number) => {
+    const chunk = world.getChunk(startChunkX, startChunkZ)
+    if (chunk?.['hasLightFromEngine']) {
+        return
+    }
     for (let x = startChunkX * 16; x < (startChunkX + 1) * 16; x++) {
         for (let z = startChunkZ * 16; z < (startChunkZ + 1) * 16; z++) {
             for (let y = world.WORLD_MIN_Y; y < world.WORLD_HEIGHT; y++) {
