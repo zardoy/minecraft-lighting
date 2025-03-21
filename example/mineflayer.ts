@@ -11,7 +11,7 @@ const bot = createBot({
 bot.on('login', () => {
     const data = minecraftData(bot.version)
     const lightWorld = createLightEngineForSyncWorld(bot.world, data, {
-        enableSkyLight: false,
+        enableSkyLight: true,
         minY: 0,
         height: 256,
     })
@@ -25,7 +25,7 @@ bot.on('login', () => {
         const chunkX = Math.floor(pos.x / 16)
         const chunkZ = Math.floor(pos.z / 16)
         fillColumnWithZeroLight(lightWorld.externalWorld, chunkX, chunkZ)
-        
+
         const affectedChunks = (await lightWorld.receiveUpdateColumn(chunkX, chunkZ)) ?? []
         onChunkReady(chunkX, chunkZ)
         for (const chunk of affectedChunks) {
@@ -54,7 +54,9 @@ bot.on('login', () => {
     bot.waitForChunksToLoad().then(async () => {
         console.log('chunks loaded')
         await Promise.all(promises)
-        console.log(lightWorld.getLightLevelsString(-5, -5, 5, 10, 10, 'blockLight'))
+        console.log(lightWorld.getLightLevelsString(-5, -5, 5, 10, 10, 'skyLight'))
+        console.log(bot.settings.viewDistance, lightWorld.chunksProcessed)
+        console.log(lightWorld.getPerformanceStats())
     })
 })
 

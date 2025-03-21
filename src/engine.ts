@@ -15,6 +15,7 @@ export class LightWorld {
     public performanceStats: Map<string, { calls: number, totalTime: number }> = new Map();
     private affectedChunksTimestamps: Map<string, number> = new Map();
     public onChunkProcessed = [] as ((chunkX: number, chunkZ: number) => void)[];
+    chunksProcessed = 0
 
     constructor(public externalWorld: ExternalWorld = new TestWorld()) {}
 
@@ -39,7 +40,7 @@ export class LightWorld {
         if (!chunk) return;
 
         const key = this.getChunkKey(chunk.position.x, chunk.position.z);
-        this.affectedChunksTimestamps.set(key, Date.now());
+        this.affectedChunksTimestamps.set(key, performance.now());
     }
 
     setBlockLight(x: number, y: number, z: number, value: number): void {
@@ -52,7 +53,7 @@ export class LightWorld {
     }
 
     setSunLight(x: number, y: number, z: number, value: number): void {
-        this.setBlockChunkAffected(x, y, z);
+        // this.setBlockChunkAffected(x, y, z);
         this.externalWorld.setSunLight(x, y, z, value);
     }
 
@@ -529,6 +530,7 @@ export class LightWorld {
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 0));
+                this.chunksProcessed++
             }
         } finally {
             this.isProcessingLight = false;
@@ -583,7 +585,9 @@ export class LightWorld {
                     this.setSunLight(globalX, y, globalZ, 0);
                 }
             }
+
         }
+        this.setBlockChunkAffected(chunk.position.x * CHUNK_SIZE, 0, chunk.position.z * CHUNK_SIZE);
 
         // Propagate sunlight
         await this.propagateSunLight();

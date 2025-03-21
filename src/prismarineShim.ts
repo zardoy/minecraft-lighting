@@ -14,7 +14,7 @@ interface WorldOptions {
 export const convertPrismarineBlockToWorldBlock = (block: any, mcData: any): WorldBlock => {
     const blockData = mcData.blocks[block.type]
     let emitLight = blockData.emitLight;
-    // todo
+    // todo disabled for perf for now
     if (block.name === 'redstone_ore') {
         emitLight = 0;
     }
@@ -33,6 +33,16 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
     const Chunk = PrismarineChunk(mcData.version.minecraftVersion!)
     const WORLD_HEIGHT = options.height ?? 256
     const WORLD_MIN_Y = options.minY ?? -64
+
+    let skipLightGetBlockWorkaroundPerfJustWhy = false
+    const patchLightUpdate = (fn) => {
+        const oldEmit = world['_emitBlockUpdate']
+        world['_emitBlockUpdate'] = () => { }
+        skipLightGetBlockWorkaroundPerfJustWhy = true
+        fn()
+        world['_emitBlockUpdate'] = oldEmit
+        skipLightGetBlockWorkaroundPerfJustWhy = false
+    }
     const externalWorld: ExternalWorld = {
         SUPPORTS_SKY_LIGHT: options.enableSkyLight ?? true,
         WORLD_HEIGHT: WORLD_HEIGHT,
@@ -58,6 +68,16 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
             // dont waste time parsing lights since we do them ourselves
             chunk['loadParsedLight'] = () => { }
             const chunkPosStart = new Vec3(chunkX * 16, 0, chunkZ * 16)
+
+            if (!chunk['getBlockPatched']) {
+                const oldGetBlock = chunk.getBlock
+                chunk.getBlock = (...args: [any, any]) => {
+                    if (skipLightGetBlockWorkaroundPerfJustWhy) return null!
+                    return oldGetBlock.call(chunk, ...args)
+                }
+            }
+            chunk['getBlockPatched'] = true
+
             return {
                 position: { x: chunkX, z: chunkZ },
                 hasLightFromEngine: chunk['hasLightFromEngine'],
@@ -73,14 +93,15 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                     if (value) {
                         chunk['hasLightFromEngine'] = true
                     }
-                    chunkX
-                    chunkZ
                     world.setBlockLight(chunkPosStart.offset(x, y, z), value)
                 },
                 getSunLight: (x, y, z) => {
                     return world.getSkyLight(chunkPosStart.offset(x, y, z))
                 },
                 setSunLight: (x, y, z, value) => {
+                    if (value) {
+                        chunk['hasLightFromEngine'] = true
+                    }
                     world.setSkyLight(chunkPosStart.offset(x, y, z), value)
                 },
             }
@@ -89,19 +110,17 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
             return world.getBlockLight(new Vec3(x, y, z))
         },
         setBlockLight(x, y, z, value) {
-            const oldEmit = world['_emitBlockUpdate']
-            world['_emitBlockUpdate'] = () => { }
-            world.setBlockLight(new Vec3(x, y, z), value)
-            world['_emitBlockUpdate'] = oldEmit
+            patchLightUpdate(() => {
+                world.setBlockLight(new Vec3(x, y, z), value)
+            })
         },
         getSunLight(x, y, z) {
             return world.getSkyLight(new Vec3(x, y, z))
         },
         setSunLight(x, y, z, value) {
-            const oldEmit = world['_emitBlockUpdate']
-            world['_emitBlockUpdate'] = () => { }
-            world.setSkyLight(new Vec3(x, y, z), value)
-            world['_emitBlockUpdate'] = oldEmit
+            patchLightUpdate(() => {
+                world.setSkyLight(new Vec3(x, y, z), value)
+            })
         },
         hasChunk(x, z) {
             return !!world.getColumn(x, z)
