@@ -9,6 +9,8 @@ interface WorldOptions {
     height?: number
     minY?: number
     enableSkyLight?: boolean
+
+    writeLightToOriginalWorld?: boolean
 }
 
 export const convertPrismarineBlockToWorldBlock = (stateId: number, mcData: IndexedData): WorldBlock => {
@@ -58,9 +60,10 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
         getChunk(chunkX, chunkZ) {
             let chunk = world.getColumn(chunkX, chunkZ)
             if (!chunk) {
-                chunk = new Chunk({ x: chunkX, z: chunkZ, minY: WORLD_MIN_Y, worldHeight: WORLD_HEIGHT })
-                world.setColumn(chunkX, chunkZ, chunk, false)
-                const oldLoad = chunk['load'].bind(chunk)
+                return undefined
+                // chunk = new Chunk({ x: chunkX, z: chunkZ, minY: WORLD_MIN_Y, worldHeight: WORLD_HEIGHT })
+                // world.setColumn(chunkX, chunkZ, chunk, false)
+                // const oldLoad = chunk['load'].bind(chunk)
                 // chunk['load'] = (...args) => {
                 //     // oldLoad(...args)
                 // }
@@ -87,46 +90,79 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                     return convertPrismarineBlockToWorldBlock(block, mcData)
                 },
                 getBlockLight: (x, y, z) => {
-                    return world.getBlockLight(chunkPosStart.offset(x, y, z))
+                    if (options.writeLightToOriginalWorld) {
+                        return world.getBlockLight(chunkPosStart.offset(x, y, z))
+                    } else {
+                        return engine.worldLightHolder.getBlockLight(x, y, z)
+                    }
                 },
                 setBlockLight: (x, y, z, value) => {
-                    if (value) {
-                        chunk['hasLightFromEngine'] = true
+                    if (options.writeLightToOriginalWorld) {
+                        if (value) {
+                            chunk['hasLightFromEngine'] = true
+                        }
+                        world.setBlockLight(chunkPosStart.offset(x, y, z), Math.max(value, 7))
+                    } else {
+                        engine.worldLightHolder.setBlockLight(x, y, z, value)
                     }
-                    world.setBlockLight(chunkPosStart.offset(x, y, z), Math.max(value, 7))
                 },
                 getSunLight: (x, y, z) => {
-                    return world.getSkyLight(chunkPosStart.offset(x, y, z))
+                    if (options.writeLightToOriginalWorld) {
+                        return world.getSkyLight(chunkPosStart.offset(x, y, z))
+                    } else {
+                        return engine.worldLightHolder.getSkyLight(x, y, z)
+                    }
                 },
                 setSunLight: (x, y, z, value) => {
-                    if (value) {
-                        chunk['hasLightFromEngine'] = true
+                    if (options.writeLightToOriginalWorld) {
+                        if (value) {
+                            chunk['hasLightFromEngine'] = true
+                        }
+                        world.setSkyLight(chunkPosStart.offset(x, y, z), value)
+                    } else {
+                        engine.worldLightHolder.setSkyLight(x, y, z, value)
                     }
-                    world.setSkyLight(chunkPosStart.offset(x, y, z), value)
                 },
             }
         },
         getBlockLight(x, y, z) {
-            return world.getBlockLight(new Vec3(x, y, z))
+            if (options.writeLightToOriginalWorld) {
+                return world.getBlockLight(new Vec3(x, y, z))
+            } else {
+                return engine.worldLightHolder.getBlockLight(x, y, z)
+            }
         },
         setBlockLight(x, y, z, value) {
-            patchLightUpdate(() => {
-                world.setBlockLight(new Vec3(x, y, z), value)
-            })
+            if (options.writeLightToOriginalWorld) {
+                patchLightUpdate(() => {
+                    world.setBlockLight(new Vec3(x, y, z), value)
+                })
+            } else {
+                engine.worldLightHolder.setBlockLight(x, y, z, value)
+            }
         },
         getSunLight(x, y, z) {
-            return world.getSkyLight(new Vec3(x, y, z))
+            if (options.writeLightToOriginalWorld) {
+                return world.getSkyLight(new Vec3(x, y, z))
+            } else {
+                return engine.worldLightHolder.getSkyLight(x, y, z)
+            }
         },
         setSunLight(x, y, z, value) {
-            patchLightUpdate(() => {
-                world.setSkyLight(new Vec3(x, y, z), value)
-            })
+            if (options.writeLightToOriginalWorld) {
+                patchLightUpdate(() => {
+                    world.setSkyLight(new Vec3(x, y, z), value)
+                })
+            } else {
+                engine.worldLightHolder.setSkyLight(x, y, z, value)
+            }
         },
         hasChunk(x, z) {
             return !!world.getColumn(x, z)
         },
     }
-    return new LightWorld(externalWorld)
+    const engine = new LightWorld(externalWorld)
+    return engine
 }
 
 export const fillColumnWithZeroLight = (world: ExternalWorld, startChunkX: number, startChunkZ: number) => {

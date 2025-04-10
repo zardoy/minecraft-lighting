@@ -2,7 +2,7 @@ import { LightNode, LightRemovalNode, CHUNK_SIZE, MAX_LIGHT_LEVEL, WorldBlock, E
 import { WorldLightHolder } from './worldLightHolder';
 
 export class LightWorld {
-    public PARALLEL_CHUNK_PROCESSING = false
+    public PARALLEL_CHUNK_PROCESSING = true
 
     // not necessarily needed for the engine to work, but useful for side cases
     public worldLightHolder: WorldLightHolder
@@ -475,12 +475,8 @@ export class LightWorld {
         }
         this.pendingLightUpdates.set(key, update);
 
-        if (this.PARALLEL_CHUNK_PROCESSING) {
-            if (!this.isProcessingLight) {
-                void this.processLightQueue();
-            }
-        } else {
-            await this.processLightQueue();
+        if (!this.isProcessingLight) {
+            void this.processLightQueue();
         }
 
         const res = await new Promise<boolean>(resolve => {
