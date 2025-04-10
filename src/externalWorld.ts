@@ -75,10 +75,10 @@ const TEST_BLOCKS_BY_ID = Object.entries(TEST_BLOCKS).reduce((acc, [key, block])
 }, {} as Record<number, WorldBlock>);
 
 export class TestChunkSection {
-    private blocks: Uint8Array;
-    private lightData: Uint8Array;
-    private position: Vector3;
-    private isLoaded: boolean = false;
+    public blocks: Uint8Array;
+    public lightData: Uint8Array;
+    public position: Vector3;
+    public isLoaded: boolean = false;
 
     constructor(position: Vector3) {
         this.position = position;

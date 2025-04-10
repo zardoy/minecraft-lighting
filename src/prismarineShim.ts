@@ -11,17 +11,17 @@ interface WorldOptions {
     enableSkyLight?: boolean
 }
 
-export const convertPrismarineBlockToWorldBlock = (block: any, mcData: any): WorldBlock => {
-    const blockData = mcData.blocks[block.type]
+export const convertPrismarineBlockToWorldBlock = (stateId: number, mcData: IndexedData): WorldBlock => {
+    const blockData = mcData.blocksByStateId[stateId]!
     let emitLight = blockData.emitLight;
     // todo disabled for perf for now
-    if (block.name === 'redstone_ore') {
+    if (blockData.name === 'redstone_ore') {
         emitLight = 0;
     }
     const worldBlock = {
-        name: block.name,
-        id: block.type,
-        isOpaque: !block.transparent,
+        name: blockData.name,
+        id: blockData.id,
+        isOpaque: !blockData.transparent,
         isLightSource: emitLight > 0,
         lightEmission: emitLight ?? 0,
         filterLight: blockData.filterLight ?? 1,
@@ -48,7 +48,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
         WORLD_HEIGHT: WORLD_HEIGHT,
         WORLD_MIN_Y: WORLD_MIN_Y,
         getBlock(x, y, z) {
-            const block = world.getBlock(new Vec3(x, y, z))
+            const block = world.getBlockStateId(new Vec3(x, y, z))
             if (!block) return undefined
             return convertPrismarineBlockToWorldBlock(block, mcData)
         },
@@ -82,7 +82,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                 position: { x: chunkX, z: chunkZ },
                 hasLightFromEngine: chunk['hasLightFromEngine'],
                 getBlock: (x, y, z) => {
-                    const block = world.getBlock(chunkPosStart.offset(x, y, z))
+                    const block = world.getBlockStateId(chunkPosStart.offset(x, y, z))
                     if (!block) return undefined
                     return convertPrismarineBlockToWorldBlock(block, mcData)
                 },
@@ -93,7 +93,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                     if (value) {
                         chunk['hasLightFromEngine'] = true
                     }
-                    world.setBlockLight(chunkPosStart.offset(x, y, z), value)
+                    world.setBlockLight(chunkPosStart.offset(x, y, z), Math.max(value, 7))
                 },
                 getSunLight: (x, y, z) => {
                     return world.getSkyLight(chunkPosStart.offset(x, y, z))

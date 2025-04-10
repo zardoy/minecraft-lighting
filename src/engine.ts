@@ -1,6 +1,12 @@
 import { LightNode, LightRemovalNode, CHUNK_SIZE, MAX_LIGHT_LEVEL, WorldBlock, ExternalWorld, TestWorld, ChunkPosition, GeneralChunk, TEST_BLOCKS } from './externalWorld';
+import { WorldLightHolder } from './worldLightHolder';
 
 export class LightWorld {
+    public PARALLEL_CHUNK_PROCESSING = false
+
+    // not necessarily needed for the engine to work, but useful for side cases
+    public worldLightHolder: WorldLightHolder
+
     private sunLightQueue: LightNode[] = [];
     private blockLightQueue: LightNode[] = [];
     private lightRemovalQueue: LightRemovalNode[] = [];
@@ -17,7 +23,9 @@ export class LightWorld {
     public onChunkProcessed = [] as ((chunkX: number, chunkZ: number) => void)[];
     chunksProcessed = 0
 
-    constructor(public externalWorld: ExternalWorld = new TestWorld()) {}
+    constructor(public externalWorld: ExternalWorld = new TestWorld()) {
+        this.worldLightHolder = new WorldLightHolder(this.WORLD_HEIGHT, this.WORLD_MIN_Y)
+    }
 
     get WORLD_HEIGHT() {
         return this.externalWorld.WORLD_HEIGHT;
@@ -467,8 +475,12 @@ export class LightWorld {
         }
         this.pendingLightUpdates.set(key, update);
 
-        if (!this.isProcessingLight) {
-            void this.processLightQueue();
+        if (this.PARALLEL_CHUNK_PROCESSING) {
+            if (!this.isProcessingLight) {
+                void this.processLightQueue();
+            }
+        } else {
+            await this.processLightQueue();
         }
 
         const res = await new Promise<boolean>(resolve => {
@@ -521,6 +533,7 @@ export class LightWorld {
                 const chunk = this.externalWorld.getChunk(column.x, column.z);
                 if (!chunk) continue;
 
+                await this.processAllLightsForChunk(chunk);
                 await this.processSunlightForChunk(chunk);
                 await this.processTorchlightForChunk(chunk);
 
@@ -538,15 +551,15 @@ export class LightWorld {
         }
     }
 
-    private async processSunlightForChunk(chunk: GeneralChunk): Promise<void> {
-        if (!this.externalWorld.SUPPORTS_SKY_LIGHT) {
-            return;
-        }
+    private async processAllLightsForChunk(chunk: GeneralChunk): Promise<void> {
+        this.markStart('processAllLightsForChunk');
 
-        this.markStart('processSunlightForChunk');
-        // Calculate initial sunlight
+        // Process torch light and sky light in a single pass
         for (let x = 0; x < CHUNK_SIZE; x++) {
             for (let z = 0; z < CHUNK_SIZE; z++) {
+
+
+                // Process sky light from top to bottom
                 let y = this.getHighestBlockInColumn(chunk, x, z);
                 let sunLightLevel = MAX_LIGHT_LEVEL;
 
@@ -560,47 +573,13 @@ export class LightWorld {
                     // this.sunLightQueue.push({ x, y: cy, z, chunk });
                 }
 
-                // Continue down from highest block
+                let stopSkyLightY = null as number | null;
+
+                // Process both lights from top to bottom
                 while (y >= this.WORLD_MIN_Y) {
                     const block = chunk.getBlock(x, y, z);
-                    if (block?.isOpaque) break;
 
-                    if (block?.filterLight) {
-                        sunLightLevel -= block.filterLight;
-                    }
-
-                    const globalX = chunk.position.x * CHUNK_SIZE + x;
-                    const globalZ = chunk.position.z * CHUNK_SIZE + z;
-                    this.setSunLight(globalX, y, globalZ, sunLightLevel);
-
-                    // Always add to queue to allow horizontal propagation
-                    this.sunLightQueue.push({ x, y, z, chunk });
-                    y--;
-                }
-
-                // Set light level for the opaque block we stopped at
-                if (y >= this.WORLD_MIN_Y) {
-                    const globalX = chunk.position.x * CHUNK_SIZE + x;
-                    const globalZ = chunk.position.z * CHUNK_SIZE + z;
-                    this.setSunLight(globalX, y, globalZ, 0);
-                }
-            }
-
-        }
-        this.setBlockChunkAffected(chunk.position.x * CHUNK_SIZE, 0, chunk.position.z * CHUNK_SIZE);
-
-        // Propagate sunlight
-        await this.propagateSunLight();
-        this.markEnd('processSunlightForChunk');
-    }
-
-    private async processTorchlightForChunk(chunk: GeneralChunk): Promise<void> {
-        this.markStart('processTorchlightForChunk');
-        // Find all light sources in chunk
-        for (let x = 0; x < CHUNK_SIZE; x++) {
-            for (let z = 0; z < CHUNK_SIZE; z++) {
-                for (let y = this.WORLD_MIN_Y; y < this.WORLD_HEIGHT; y++) {
-                    const block = chunk.getBlock(x, y, z);
+                    // Process torch light
                     if (block?.isLightSource) {
                         const globalX = chunk.position.x * CHUNK_SIZE + x;
                         const globalZ = chunk.position.z * CHUNK_SIZE + z;
@@ -610,13 +589,50 @@ export class LightWorld {
                             y,
                             z,
                             chunk
-                        })
+                        });
                     }
+
+                    if (stopSkyLightY === null) {
+                        // Always add to queue to allow horizontal propagation
+                        this.sunLightQueue.push({ x, y, z, chunk });
+
+                        // Process sky light
+                        if (block?.isOpaque) {
+                            const globalX = chunk.position.x * CHUNK_SIZE + x;
+                            const globalZ = chunk.position.z * CHUNK_SIZE + z;
+                            this.setSunLight(globalX, y, globalZ, 0);
+                            stopSkyLightY = y;
+                        }
+                        if (block?.filterLight) {
+                            sunLightLevel -= block.filterLight;
+                        }
+                    }
+
+                    // const globalX = chunk.position.x * CHUNK_SIZE + x;
+                    // const globalZ = chunk.position.z * CHUNK_SIZE + z;
+                    // this.setSunLight(globalX, y, globalZ, sunLightLevel);
+                    // this.sunLightQueue.push({ x, y, z, chunk });
+                    y--;
                 }
             }
         }
 
-        // Propagate torch light
+        this.markEnd('processAllLightsForChunk');
+        this.setBlockChunkAffected(chunk.position.x * CHUNK_SIZE, 0, chunk.position.z * CHUNK_SIZE);
+    }
+
+    private async processSunlightForChunk(chunk: GeneralChunk): Promise<void> {
+        if (!this.externalWorld.SUPPORTS_SKY_LIGHT) {
+            return;
+        }
+
+        this.markStart('processSunlightForChunk');
+        await this.propagateSunLight();
+        this.markEnd('processSunlightForChunk');
+    }
+
+    private async processTorchlightForChunk(chunk: GeneralChunk): Promise<void> {
+        this.markStart('processTorchlightForChunk');
         await this.propagateBlockLight();
         this.markEnd('processTorchlightForChunk');
     }
@@ -632,7 +648,8 @@ export class LightWorld {
         // }
 
         // this.pendingCrossChunkLight.get(key)!.push({ x: localX, y, z: localZ, chunk });
-        throw new Error('Not implemented')
+        // TODO!!!
+        // throw new Error('Not implemented')
     }
 
     private filterLight(block: WorldBlock | undefined, lightLevel: number): number {
@@ -672,6 +689,8 @@ export class LightWorld {
 
     columnCleanup(x: number, z: number): void {
         const key = this.getChunkKey(x, z);
+        this.worldLightHolder.unloadChunk(x, z)
+        this.chunksProcessed--
         // Remove any pending light propagation for this chunk
         // this.pendingCrossChunkLight.delete(key);
 
