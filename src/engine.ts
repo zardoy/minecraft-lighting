@@ -476,7 +476,10 @@ export class LightWorld {
         this.pendingLightUpdates.set(key, update);
 
         if (!this.isProcessingLight) {
-            void this.processLightQueue();
+            const promise = this.processLightQueue();
+            if (!this.PARALLEL_CHUNK_PROCESSING) {
+                await promise;
+            }
         }
 
         const res = await new Promise<boolean>(resolve => {
