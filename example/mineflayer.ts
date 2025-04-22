@@ -4,7 +4,7 @@ import minecraftData from 'minecraft-data'
 import { Vec3 } from 'vec3'
 
 const bot = createBot({
-    host: 'grim.mcraft.fun',
+    host: 'localhost',
     username: 'bot',
 })
 
@@ -28,9 +28,9 @@ bot.on('login', () => {
         const chunkZ = Math.floor(pos.z / 16)
         // fillColumnWithZeroLight(lightWorld.externalWorld, chunkX, chunkZ)
 
-        console.log('processing', k, chunkX, chunkZ)
+        // console.log('processing', k, chunkX, chunkZ)
         const affectedChunks = (await lightWorld.receiveUpdateColumn(chunkX, chunkZ)) ?? []
-        console.log('processed', k, chunkX, chunkZ)
+        // console.log('processed', k, chunkX, chunkZ)
         onChunkReady(chunkX, chunkZ)
         for (const chunk of affectedChunks) {
             if (bot.world.getColumn(chunk.x, chunk.z)) {
@@ -69,7 +69,7 @@ bot.on('login', () => {
     bot.waitForChunksToLoad().then(async () => {
         console.log('chunks loaded')
         await Promise.all(promises)
-        console.log(lightWorld.getLightLevelsString(-5, -5, 5, 10, 10, 'skyLight'))
+        console.log(lightWorld.getLightLevelsString(-5, -5, 5, 10, 10, 'blockLight'))
         console.log(bot.settings.viewDistance, lightWorld.chunksProcessed)
         console.log(lightWorld.getPerformanceStats())
         console.log('total time', totalTime)
