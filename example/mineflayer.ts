@@ -2,6 +2,7 @@ import { createBot } from 'mineflayer'
 import { createLightEngineForSyncWorld, fillColumnWithZeroLight } from '../src/prismarineShim'
 import minecraftData from 'minecraft-data'
 import { Vec3 } from 'vec3'
+import { WorldLightHolder } from '../src/worldLightHolder'
 
 const bot = createBot({
     host: 'localhost',
@@ -14,6 +15,7 @@ bot.on('login', () => {
         enableSkyLight: true,
         minY: 0,
         height: 256,
+        // writeLightToOriginalWorld: true,
     })
     const onChunkReady = (chunkX: number, chunkZ: number) => {
         // console.log(`chunk ${chunkX},${chunkZ} ready`)
@@ -69,6 +71,7 @@ bot.on('login', () => {
     bot.waitForChunksToLoad().then(async () => {
         console.log('chunks loaded')
         await Promise.all(promises)
+
         console.log(lightWorld.getLightLevelsString(-5, -5, 5, 10, 10, 'blockLight'))
         console.log(bot.settings.viewDistance, lightWorld.chunksProcessed)
         console.log(lightWorld.getPerformanceStats())

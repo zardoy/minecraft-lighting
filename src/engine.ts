@@ -676,6 +676,7 @@ export class LightWorld {
             for (let x = xStart; x <= xStart + xSize; x++) {
                 const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
 
+                // const lightLevel = chunk ? `${x} ${y} ${z} ${getLightFn(chunk, localX, y, localZ)}` : '--';
                 const lightLevel = chunk ? getLightFn(chunk, localX, y, localZ) : '--';
                 row.push(lightLevel.toString().padStart(2, ' '));
             }

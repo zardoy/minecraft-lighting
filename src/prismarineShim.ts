@@ -61,9 +61,11 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
             let chunk = world.getColumn(chunkX, chunkZ)
             if (!chunk) {
                 return undefined
+                // TODO why it fixes?
                 // chunk = new Chunk({ x: chunkX, z: chunkZ, minY: WORLD_MIN_Y, worldHeight: WORLD_HEIGHT })
                 // world.setColumn(chunkX, chunkZ, chunk, false)
                 // const oldLoad = chunk['load'].bind(chunk)
+
                 // chunk['load'] = (...args) => {
                 //     // oldLoad(...args)
                 // }
@@ -93,7 +95,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                     if (options.writeLightToOriginalWorld) {
                         return world.getBlockLight(chunkPosStart.offset(x, y, z))
                     } else {
-                        return engine.worldLightHolder.getBlockLight(x, y, z)
+                        return engine.worldLightHolder.getBlockLight(chunkPosStart.x + x, y, chunkPosStart.z + z)
                     }
                 },
                 setBlockLight: (x, y, z, value) => {
@@ -101,16 +103,16 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                         if (value) {
                             chunk['hasLightFromEngine'] = true
                         }
-                        world.setBlockLight(chunkPosStart.offset(x, y, z), Math.max(value, 7))
+                        world.setBlockLight(chunkPosStart.offset(x, y, z), value)
                     } else {
-                        engine.worldLightHolder.setBlockLight(x, y, z, value)
+                        engine.worldLightHolder.setBlockLight(chunkPosStart.x + x, y, chunkPosStart.z + z, value)
                     }
                 },
                 getSunLight: (x, y, z) => {
                     if (options.writeLightToOriginalWorld) {
                         return world.getSkyLight(chunkPosStart.offset(x, y, z))
                     } else {
-                        return engine.worldLightHolder.getSkyLight(x, y, z)
+                        return engine.worldLightHolder.getSkyLight(chunkPosStart.x + x, y, chunkPosStart.z + z)
                     }
                 },
                 setSunLight: (x, y, z, value) => {
@@ -120,7 +122,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
                         }
                         world.setSkyLight(chunkPosStart.offset(x, y, z), value)
                     } else {
-                        engine.worldLightHolder.setSkyLight(x, y, z, value)
+                        engine.worldLightHolder.setSkyLight(chunkPosStart.x + x, y, chunkPosStart.z + z, value)
                     }
                 },
             }
