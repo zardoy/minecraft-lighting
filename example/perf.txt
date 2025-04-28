@@ -1,0 +1,27 @@
+# macbook m1 pro - bot grim
+
+Performance Statistics:
+processAllLightsForChunk:
+  Calls: 84
+  Total Time: 1192.67ms
+  Average Time: 14.20ms
+propagateSunLight:
+  Calls: 84
+  Total Time: 532.58ms
+  Average Time: 6.34ms
+processSunlightForChunk:
+  Calls: 84
+  Total Time: 534.21ms
+  Average Time: 6.36ms
+propagateLight:
+  Calls: 83
+  Total Time: 75.99ms
+  Average Time: 0.92ms
+processTorchlightForChunk:
+  Calls: 83
+  Total Time: 76.64ms
+  Average Time: 0.92ms
+processLightQueue:
+  Calls: 27
+  Total Time: 1882.49ms
+  Average Time: 69.72ms
