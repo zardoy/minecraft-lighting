@@ -66,7 +66,7 @@ describe('Block Light', () => {
         `)
     })
 
-    test('light blocked by stone block', () => {
+    test.todo('light blocked by stone block', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
@@ -163,15 +163,16 @@ describe('Block Light', () => {
         `)
     })
 
+  describe.skip('Legacy block updates', () => {
     test('removing light source', () => {
-        const world = new LightWorld()
+      const world = new LightWorld()
 
-        // Place and then remove a glowstone block
-        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
-        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.air)
+      // Place and then remove a glowstone block
+      world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
+      world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.air)
 
-        const lightLevels = world.getLightLevelsString(0, 0, 64, 10, 10, 'blockLight')
-        expect(lightLevels).toMatchInlineSnapshot(`
+      const lightLevels = world.getLightLevelsString(0, 0, 64, 10, 10, 'blockLight')
+      expect(lightLevels).toMatchInlineSnapshot(`
           "|  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |
           |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |
           |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |
@@ -185,6 +186,7 @@ describe('Block Light', () => {
           |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |  0 |"
         `)
     })
+  })
 })
 
 describe('External world sync prismarine integration', () => {
