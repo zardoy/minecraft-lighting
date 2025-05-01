@@ -22,6 +22,7 @@ export interface LightNode {
 
 export interface LightRemovalNode extends LightNode {
     value: number;
+    isSunLight?: boolean;
 }
 
 export interface WorldBlock {

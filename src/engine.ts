@@ -1,6 +1,14 @@
 import { LightNode, LightRemovalNode, CHUNK_SIZE, MAX_LIGHT_LEVEL, WorldBlock, ExternalWorld, TestWorld, ChunkPosition, GeneralChunk, TEST_BLOCKS } from './externalWorld';
 import { WorldLightHolder } from './worldLightHolder';
 
+type ChunkUpdateType = {
+    terminate(): void;
+    column: ChunkPosition;
+    priority: number;
+    timestamp: number;
+    updateType: 'block' | 'sun' | undefined;
+};
+
 export class LightWorld {
     public PARALLEL_CHUNK_PROCESSING = true
 
@@ -11,17 +19,15 @@ export class LightWorld {
     private blockLightQueue: LightNode[] = [];
     private lightRemovalQueue: LightRemovalNode[] = [];
     // private pendingCrossChunkLight: Map<string, LightNode[]> = new Map();
-    private pendingLightUpdates: Map<string, {
-        terminate(): void;
-        column: ChunkPosition;
-        priority: number;
-        timestamp: number;
-    }> = new Map();
+    private pendingLightUpdates: Map<string, ChunkUpdateType> = new Map();
     private isProcessingLight = false;
     public performanceStats: Map<string, { calls: number, totalTime: number }> = new Map();
     private affectedChunksTimestamps: Map<string, number> = new Map();
     public onChunkProcessed = [] as ((chunkX: number, chunkZ: number) => void)[];
     chunksProcessed = 0
+
+    /* @memory */
+    lastBlockUpdates = {} as Record<string, Map<string, number>>
 
     constructor(public externalWorld: ExternalWorld = new TestWorld()) {
         this.worldLightHolder = new WorldLightHolder(this.WORLD_HEIGHT, this.WORLD_MIN_Y)
@@ -48,7 +54,7 @@ export class LightWorld {
         if (!chunk) return;
 
         const key = this.getChunkKey(chunk.position.x, chunk.position.z);
-        this.affectedChunksTimestamps.set(key, performance.now());
+        this.affectedChunksTimestamps.set(key, Date.now());
     }
 
     setBlockLight(x: number, y: number, z: number, value: number): void {
@@ -61,7 +67,8 @@ export class LightWorld {
     }
 
     setSunLight(x: number, y: number, z: number, value: number): void {
-        // this.setBlockChunkAffected(x, y, z);
+        // TODO optimise!
+        this.setBlockChunkAffected(x, y, z);
         this.externalWorld.setSunLight(x, y, z, value);
     }
 
@@ -125,12 +132,125 @@ export class LightWorld {
         return this.externalWorld.getBlock(x, y, z);
     }
 
-    setBlock(x: number, y: number, z: number, block: WorldBlock, autoPropagate = true): void {
+    async setBlockUpdateChunkIfNeeded(x: number, y: number, z: number) {
+        const { chunk } = this.getChunkAndLocalCoord(x, y, z);
+        if (!chunk) return;
+        const block = this.getBlock(x, y, z);
+        const blockLight = this.getBlockLight(x, y, z);
+        const sunLight = this.getSunLight(x, y, z);
+
+        const blockKey = `${x},${y},${z}`;
+        const chunkKey = this.getChunkKey(chunk.position.x, chunk.position.z);
+        if (!this.lastBlockUpdates[chunkKey]) {
+            this.lastBlockUpdates[chunkKey] = new Map<string, number>();
+        }
+        const chunkBlockUpdates = this.lastBlockUpdates[chunkKey]
+        if (chunkBlockUpdates.get(blockKey) === block?.id) {
+            return
+        }
+        chunkBlockUpdates.set(blockKey, block?.id ?? 0);
+
+        let updateSunLight = false;
+        let updateBlockLight = false;
+
+        const filtersLight = (block?.filterLight ?? 0) > 0;
+        // Check if block affects sunlight
+        if (block?.isOpaque || filtersLight) {
+            // Check if this block was previously letting sunlight through
+            if (sunLight > 0) {
+                updateSunLight = true;
+            }
+        } else if (sunLight === 0) {
+            // If block is not opaque and there's no sunlight, check if it should let sunlight through
+            // if sunlight has above or sideways
+            if (this.getSunLight(x, y + 1, z) > 2) {
+                updateSunLight = true;
+            }
+
+            if (this.getSunLight(x + 1, y, z) > 2 || this.getSunLight(x - 1, y, z) > 2 || this.getSunLight(x, y, z + 1) > 2 || this.getSunLight(x, y, z - 1) > 2) {
+                updateSunLight = true;
+            }
+        }
+
+        // Check if block affects block light
+        if (block?.isLightSource) {
+            updateBlockLight = true;
+        } else if (block?.isOpaque || filtersLight) {
+            // Check if this block was previously letting block light through
+            if (blockLight > 0) {
+                updateBlockLight = true;
+            } else {
+                // Check if this block is blocking light from any direction
+                for (const dir of LightWorld.DIRECTIONS) {
+                    const nx = x + dir.x;
+                    const ny = y + dir.y;
+                    const nz = z + dir.z;
+                    if (ny < this.WORLD_MIN_Y || ny >= this.WORLD_HEIGHT) continue;
+                    if (this.getBlockLight(nx, ny, nz) > 0) {
+                        updateBlockLight = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!updateSunLight && !updateBlockLight) {
+            return;
+        }
+
+        // Determine which type of light update to perform
+        let updateType: 'block' | 'sun' | undefined;
+        if (updateSunLight && updateBlockLight) {
+            updateType = undefined; // Update both
+        } else if (updateSunLight) {
+            updateType = 'sun';
+        } else if (updateBlockLight) {
+            updateType = 'block';
+        }
+
+        const start = performance.now();
+        const afffected = await this.receiveUpdateColumn(chunk.position.x, chunk.position.z, updateType)
+        const end = performance.now();
+        return {
+            chunk,
+            updateType,
+            affectedChunks: afffected,
+            time: end - start
+        }
+    }
+
+    setBlockLegacy(x: number, y: number, z: number, block: WorldBlock, autoPropagate = true): void {
         const oldBlock = this.getBlock(x, y, z);
         const oldBlockLight = this.getBlockLight(x, y, z);
         const oldSunLight = this.getSunLight(x, y, z);
 
-        // If the old block had any light, we need to remove it first
+        // Step 1: Store the light levels of surrounding blocks before removal
+        type LightNode = { x: number; y: number; z: number; level: number };
+        const surroundingBlocksLight: LightNode[] = [];
+        const surroundingSunLight: LightNode[] = [];
+
+        for (const dir of LightWorld.DIRECTIONS) {
+            const nx = x + dir.x;
+            const ny = y + dir.y;
+            const nz = z + dir.z;
+
+            // Skip if Y is out of bounds
+            if (ny < this.WORLD_MIN_Y || ny >= this.WORLD_HEIGHT) {
+                continue;
+            }
+
+            surroundingBlocksLight.push({
+                x: nx, y: ny, z: nz,
+                level: this.getBlockLight(nx, ny, nz)
+            });
+
+            surroundingSunLight.push({
+                x: nx, y: ny, z: nz,
+                level: this.getSunLight(nx, ny, nz)
+            });
+        }
+
+        // Step 2: If the old block had any light, we need to remove it first
         if (oldBlockLight > 0) {
             this.removeBlockLight(x, y, z);
         }
@@ -138,10 +258,15 @@ export class LightWorld {
             this.removeSunLight(x, y, z);
         }
 
-        // Set the new block
+        // Run light removal propagation first
+        if (this.lightRemovalQueue.length > 0) {
+            // this.unPropagateLight();
+        }
+
+        // Step 3: Set the new block
         this.externalWorld.setBlock(x, y, z, block.id);
 
-        // If the new block is a light source, add its light
+        // Step 4: If the new block is a light source, add its light
         if (block.isLightSource) {
             this.setBlockLight(x, y, z, block.lightEmission);
             const { chunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
@@ -155,21 +280,57 @@ export class LightWorld {
             }
         }
 
-        // Handle opacity changes affecting sunlight
+        // Step 5: Handle opacity changes affecting sunlight
         if (block.isOpaque) {
             this.updateSunLightRemove(x, y, z);
         } else {
             this.updateSunLightAdd(x, y, z);
         }
 
-        if (autoPropagate) {
-            // Propagate light changes if needed
-            if (this.lightRemovalQueue.length > 0) {
-                this.unPropagateLight();
+        // Step 6: Check all surrounding blocks that had light and add them back to the queue
+        // This ensures proper re-propagation around the changed block
+        for (const lightNode of surroundingBlocksLight) {
+            const currentLight = this.getBlockLight(lightNode.x, lightNode.y, lightNode.z);
+            if (currentLight > 0) {
+                const { chunk, localX, localZ } = this.getChunkAndLocalCoord(
+                    lightNode.x, lightNode.y, lightNode.z
+                );
+                if (chunk) {
+                    this.blockLightQueue.push({
+                        x: localX,
+                        y: lightNode.y,
+                        z: localZ,
+                        chunk
+                    });
+                }
             }
+        }
+
+        for (const lightNode of surroundingSunLight) {
+            const currentLight = this.getSunLight(lightNode.x, lightNode.y, lightNode.z);
+            if (currentLight > 0) {
+                const { chunk, localX, localZ } = this.getChunkAndLocalCoord(
+                    lightNode.x, lightNode.y, lightNode.z
+                );
+                if (chunk) {
+                    this.sunLightQueue.push({
+                        x: localX,
+                        y: lightNode.y,
+                        z: localZ,
+                        chunk
+                    });
+                }
+            }
+        }
+
+        if (autoPropagate) {
+            // Step 7: Propagate light changes in the correct order
+            // Process block light
             if (this.blockLightQueue.length > 0) {
                 this.propagateBlockLight();
             }
+
+            // Process sun light after block light
             if (this.sunLightQueue.length > 0) {
                 this.propagateSunLight();
             }
@@ -220,7 +381,8 @@ export class LightWorld {
             y,
             z: localZ,
             value: lightLevel,
-            chunk
+            chunk,
+            isSunLight: true
         });
 
         // Set the light to 0
@@ -232,16 +394,11 @@ export class LightWorld {
             const node = this.lightRemovalQueue.shift()!;
             const { x, y, z, value: lightLevel, chunk } = node;
 
-            const directions = [
-                { x: -1, y: 0, z: 0 },
-                { x: 1, y: 0, z: 0 },
-                { x: 0, y: -1, z: 0 },
-                { x: 0, y: 1, z: 0 },
-                { x: 0, y: 0, z: -1 },
-                { x: 0, y: 0, z: 1 }
-            ];
+            // Determine if this is a sun light or block light removal node
+            // This is a critical fix - the original method was always checking for block light
+            const isSunLight = node.isSunLight ?? (chunk.getSunLight(x, y, z) === 0 && lightLevel > 0);
 
-            for (const dir of directions) {
+            for (const dir of LightWorld.DIRECTIONS) {
                 const globalX = chunk.position.x * CHUNK_SIZE + x + dir.x;
                 const newY = y + dir.y;
                 const globalZ = chunk.position.z * CHUNK_SIZE + z + dir.z;
@@ -257,20 +414,36 @@ export class LightWorld {
                 // Check if target chunk exists
                 if (!targetChunk) continue;
 
-                const neighborLight = targetChunk.getBlockLight(targetX, newY, targetZ);
+                // Check the appropriate light type
+                const neighborLight = isSunLight
+                    ? targetChunk.getSunLight(targetX, newY, targetZ)
+                    : targetChunk.getBlockLight(targetX, newY, targetZ);
 
                 // If the neighbor's light is coming from the removed light source
                 if (neighborLight !== 0 && neighborLight < lightLevel) {
-                    this.removeBlockLight(globalX, newY, globalZ, neighborLight);
+                    if (isSunLight) {
+                        this.removeSunLight(globalX, newY, globalZ);
+                    } else {
+                        this.removeBlockLight(globalX, newY, globalZ, neighborLight);
+                    }
                 }
                 // If the neighbor has equal or greater light level, it might be from another source
                 else if (neighborLight >= lightLevel) {
-                    this.blockLightQueue.push({
-                        x: targetX,
-                        y: newY,
-                        z: targetZ,
-                        chunk: targetChunk
-                    });
+                    if (isSunLight) {
+                        this.sunLightQueue.push({
+                            x: targetX,
+                            y: newY,
+                            z: targetZ,
+                            chunk: targetChunk
+                        });
+                    } else {
+                        this.blockLightQueue.push({
+                            x: targetX,
+                            y: newY,
+                            z: targetZ,
+                            chunk: targetChunk
+                        });
+                    }
                 }
             }
         }
@@ -309,6 +482,69 @@ export class LightWorld {
 
             // Add to removal queue with the full value
             this.removeSunLight(x, cy, z);
+        }
+
+        // Critical improvement: Check all horizontal and diagonal neighbors
+        // This handles cases where light might need to flow back into areas
+        // that were previously lit by the column we just blocked
+        const directions = [
+            { x: -1, y: 0, z: 0 },
+            { x: 1, y: 0, z: 0 },
+            { x: 0, y: 0, z: -1 },
+            { x: 0, y: 0, z: 1 },
+            { x: -1, y: 0, z: -1 },
+            { x: -1, y: 0, z: 1 },
+            { x: 1, y: 0, z: -1 },
+            { x: 1, y: 0, z: 1 },
+        ];
+
+        // Check horizontal neighbors on the same level
+        for (const dir of directions) {
+            const nx = x + dir.x;
+            const nz = z + dir.z;
+
+            // Check if the neighbor has sunlight
+            const neighborLight = this.getSunLight(nx, y, nz);
+
+            if (neighborLight > 0) {
+                const { chunk, localX, localZ } = this.getChunkAndLocalCoord(nx, y, nz);
+                if (chunk) {
+                    // Add this neighbor to the propagation queue to ensure its light spreads properly
+                    this.sunLightQueue.push({
+                        x: localX,
+                        y,
+                        z: localZ,
+                        chunk
+                    });
+                }
+            }
+        }
+
+        // Also check neighbors above and below to ensure light flows properly in 3D
+        // This is especially important for re-propagating after block placement
+        for (let dy = -1; dy <= 1; dy++) {
+            if (dy === 0) continue; // Skip same level (already handled)
+
+            const ny = y + dy;
+            if (ny < this.WORLD_MIN_Y || ny >= this.WORLD_HEIGHT) continue;
+
+            for (const dir of directions) {
+                const nx = x + dir.x;
+                const nz = z + dir.z;
+
+                const neighborLight = this.getSunLight(nx, ny, nz);
+                if (neighborLight > 0) {
+                    const { chunk, localX, localZ } = this.getChunkAndLocalCoord(nx, ny, nz);
+                    if (chunk) {
+                        this.sunLightQueue.push({
+                            x: localX,
+                            y: ny,
+                            z: localZ,
+                            chunk
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -396,6 +632,8 @@ export class LightWorld {
 
             // Skip if this is an opaque block
             if (block?.isOpaque) continue;
+            // Skip if there's no light to propagate
+            if (lightLevel <= 0) continue;
 
             // Minecraft checks each direction and propagates light accordingly
             for (const dir of LightWorld.DIRECTIONS) {
@@ -418,6 +656,9 @@ export class LightWorld {
                 const targetBlock = targetChunk.getBlock(targetX, newY, targetZ);
                 const currentLight = targetChunk.getSunLight(targetX, newY, targetZ);
 
+                // Skip propagation into opaque blocks
+                if (targetBlock?.isOpaque) continue;
+
                 // Calculate new light level based on direction and opacity
                 let newLight = lightLevel - 1;
                 if (targetBlock?.filterLight) {
@@ -432,11 +673,12 @@ export class LightWorld {
 
                 if (newLight <= 0) continue;
 
-                // Only propagate if:
-                // 1. Target block can accept light (not opaque)
-                // 2. New light level would be higher than current
-                if ((!targetBlock?.isOpaque) && currentLight < newLight) {
+                // Only propagate if new light level would be higher than current
+                if (currentLight < newLight) {
                     targetChunk.setSunLight(targetX, newY, targetZ, newLight);
+
+                    // Mark this chunk as affected for rendering updates
+                    this.setBlockChunkAffected(globalX, newY, globalZ);
 
                     this.sunLightQueue.push({
                         x: targetX,
@@ -558,7 +800,7 @@ export class LightWorld {
     //     this.propagateSunLight();
     // }
 
-    async receiveUpdateColumn(x: number, z: number): Promise<ChunkPosition[] | null> {
+    async receiveUpdateColumn(x: number, z: number, updateType?: 'block' | 'sun'): Promise<ChunkPosition[] | null> {
         this.affectedChunksTimestamps.clear();
         const chunk = this.externalWorld.getChunk(x, z)!;
         if (!chunk) {
@@ -570,11 +812,12 @@ export class LightWorld {
 
         // Add update to Map with timestamp
         const key = this.getChunkKey(x, z);
-        const update = {
+        const update: ChunkUpdateType = {
             column: { x, z },
             priority: 1,
             timestamp: Date.now(),
-            terminate: () => {}
+            terminate: () => { },
+            updateType: updateType
         };
         const currentUpdate = this.pendingLightUpdates.get(key);
         if (currentUpdate) {
@@ -635,13 +878,17 @@ export class LightWorld {
                     continue;
                 }
 
-                const { column } = update;
+                const { column, updateType } = update;
                 const chunk = this.externalWorld.getChunk(column.x, column.z);
                 if (!chunk) continue;
 
-                // Process each type of light separately for clarity
-                await this.processTorchlightForChunk(chunk);   // First process block light
-                await this.processSunlightForChunk(chunk);     // Then process sky light
+                // Process light based on updateType
+                if (updateType === 'block' || updateType === undefined) {
+                    await this.processTorchlightForChunk(chunk);
+                }
+                if (updateType === 'sun' || updateType === undefined) {
+                    await this.processSunlightForChunk(chunk);
+                }
 
                 // Remove this update only if it hasn't been superseded
                 if (this.pendingLightUpdates.get(key)?.timestamp === update.timestamp) {
@@ -764,19 +1011,76 @@ export class LightWorld {
         this.markEnd('processSunlightForChunk');
     }
 
-    private addPendingLight(x: number, y: number, z: number, chunk: GeneralChunk) {
-        const { chunk: targetChunk, localX, localZ } = this.getChunkAndLocalCoord(x, y, z);
+    private addPendingLight(x: number, y: number, z: number, sourceChunk: GeneralChunk): void {
         const chunkX = Math.floor(x / CHUNK_SIZE);
         const chunkZ = Math.floor(z / CHUNK_SIZE);
         const key = this.getChunkKey(chunkX, chunkZ);
 
-        // if (!this.pendingCrossChunkLight.has(key)) {
-        //     this.pendingCrossChunkLight.set(key, []);
-        // }
+        // If the target chunk isn't loaded, queue a light update for when it does load
+        if (!this.pendingLightUpdates.has(key)) {
+            this.pendingLightUpdates.set(key, {
+                column: { x: chunkX, z: chunkZ },
+                priority: 2, // Higher priority for cross-chunk propagation
+                timestamp: Date.now(),
+                terminate: () => { },
+                updateType: undefined
+            });
+        }
 
-        // this.pendingCrossChunkLight.get(key)!.push({ x: localX, y, z: localZ, chunk });
-        // TODO!!!
-        // throw new Error('Not implemented')
+        // Try to get the neighboring chunk again - it might have loaded
+        const { chunk: targetChunk } = this.getChunkAndLocalCoord(x, y, z);
+        if (targetChunk) {
+            const localX = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const localZ = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+            // Calculate the original source position in global coords
+            // Get the ACTUAL light level from the source position
+            const sourceX = sourceChunk.position.x * CHUNK_SIZE +
+                Math.floor((sourceChunk.position.x * CHUNK_SIZE + CHUNK_SIZE - 1 - x) >= CHUNK_SIZE ?
+                    CHUNK_SIZE - 1 : (sourceChunk.position.x * CHUNK_SIZE + CHUNK_SIZE - 1 - x));
+            const sourceZ = sourceChunk.position.z * CHUNK_SIZE +
+                Math.floor((sourceChunk.position.z * CHUNK_SIZE + CHUNK_SIZE - 1 - z) >= CHUNK_SIZE ?
+                    CHUNK_SIZE - 1 : (sourceChunk.position.z * CHUNK_SIZE + CHUNK_SIZE - 1 - z));
+
+            // Use the adjacent block from the source chunk to determine light value
+            const adjacentX = x - (x > sourceChunk.position.x * CHUNK_SIZE ? 1 : -1);
+            const adjacentZ = z - (z > sourceChunk.position.z * CHUNK_SIZE ? 1 : -1);
+
+            // Check if there's skylight at the edge of the source chunk
+            const sunLight = this.getSunLight(adjacentX, y, adjacentZ);
+            if (sunLight > 0) {
+                // Add to the sun light queue with one level less
+                const newSunLight = Math.max(0, sunLight - 1);
+                if (newSunLight > 0) {
+                    // Set the light directly
+                    this.setSunLight(x, y, z, newSunLight);
+
+                    // Add to queue for further propagation
+                    this.sunLightQueue.push({
+                        x: localX,
+                        y,
+                        z: localZ,
+                        chunk: targetChunk
+                    });
+                }
+            }
+
+            // Do the same for block light
+            const blockLight = this.getBlockLight(adjacentX, y, adjacentZ);
+            if (blockLight > 0) {
+                const newBlockLight = Math.max(0, blockLight - 1);
+                if (newBlockLight > 0) {
+                    this.setBlockLight(x, y, z, newBlockLight);
+
+                    this.blockLightQueue.push({
+                        x: localX,
+                        y,
+                        z: localZ,
+                        chunk: targetChunk
+                    });
+                }
+            }
+        }
     }
 
     private filterLight(block: WorldBlock | undefined, lightLevel: number): number {
@@ -819,6 +1123,7 @@ export class LightWorld {
         const key = this.getChunkKey(x, z);
         this.worldLightHolder.unloadChunk(x, z)
         this.chunksProcessed--
+        delete this.lastBlockUpdates[key]
         // Remove any pending light propagation for this chunk
         // this.pendingCrossChunkLight.delete(key);
 

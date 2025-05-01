@@ -23,7 +23,7 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
-        world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
 
         // Get a slice of light levels around the glowstone
         const lightLevels = getTestLightLevels(world)
@@ -46,7 +46,7 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
-        world.setBlock(-5, 64, -5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(-5, 64, -5, TEST_BLOCKS.glowstone)
 
         // Get a slice of light levels around the glowstone
         const lightLevels = getTestLightLevels(world, false, -10, -10)
@@ -70,10 +70,10 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
-        world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
 
         // Place a stone block at (5, 64, 6) to block light
-        world.setBlock(5, 64, 6, TEST_BLOCKS.stone)
+        world.setBlockLegacy(5, 64, 6, TEST_BLOCKS.stone)
 
         const lightLevels = getTestLightLevels(world)
         expect(lightLevels).toMatchInlineSnapshot(`
@@ -95,10 +95,10 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
-        world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
 
         // Place a water block at (5, 64, 6) to filter light
-        world.setBlock(5, 64, 6, TEST_BLOCKS.water)
+        world.setBlockLegacy(5, 64, 6, TEST_BLOCKS.water)
 
         const lightLevels = getTestLightLevels(world)
         expect(lightLevels).toMatchInlineSnapshot(`
@@ -121,7 +121,7 @@ describe('Block Light', () => {
 
         // Place a glowstone block at the edge of a chunk
         const chunkEdge = CHUNK_SIZE - 1
-        world.setBlock(chunkEdge, 64, chunkEdge, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(chunkEdge, 64, chunkEdge, TEST_BLOCKS.glowstone)
 
         // Get light levels across chunk boundary
         const lightLevels = getTestLightLevels(world)
@@ -144,8 +144,8 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place two glowstone blocks near each other
-        world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
-        world.setBlock(7, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(7, 64, 5, TEST_BLOCKS.glowstone)
 
         const lightLevels = world.getLightLevelsString(0, 0, 64, 10, 10, 'blockLight')
         expect(lightLevels).toMatchInlineSnapshot(`
@@ -167,8 +167,8 @@ describe('Block Light', () => {
         const world = new LightWorld()
 
         // Place and then remove a glowstone block
-        world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
-        world.setBlock(5, 64, 5, TEST_BLOCKS.air)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.air)
 
         const lightLevels = world.getLightLevelsString(0, 0, 64, 10, 10, 'blockLight')
         expect(lightLevels).toMatchInlineSnapshot(`
@@ -219,7 +219,7 @@ describe.todo('Sky Light', () => {
     const world = new LightWorld()
 
     // Place a glowstone block at (5, 64, 5)
-    world.setBlock(5, 64, 5, TEST_BLOCKS.glowstone)
+    world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
 
     // Get a slice of light levels around the glowstone
     const lightLevels = getTestLightLevels(world, true)
