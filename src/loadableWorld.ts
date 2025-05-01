@@ -75,7 +75,7 @@ class DirectChunk implements ExtendedGeneralChunk {
 
 export class LoadableWorld implements ExternalWorld {
     private chunks: Map<string, DirectChunk> = new Map();
-    readonly WORLD_HEIGHT = 384;
+    readonly WORLD_HEIGHT = 320;
     readonly WORLD_MIN_Y = -64;
     readonly SUPPORTS_SKY_LIGHT = true;
 
