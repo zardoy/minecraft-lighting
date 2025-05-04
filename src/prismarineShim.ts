@@ -1,11 +1,14 @@
 import { world } from 'prismarine-world'
-import PrismarineChunk from 'prismarine-chunk'
 import { Vec3 } from 'vec3'
 import { LightWorld } from './engine'
 import { WorldBlock, ExternalWorld } from './externalWorld'
 import { IndexedData } from 'minecraft-data'
+import { useWorkerProxy } from './workerProxy'
+import type prismarineWorkerType from './prismarineWorker.worker'
+import ChunkLoader from 'prismarine-chunk'
+import BitArray from 'prismarine-chunk/src/pc/common/BitArrayNoSpan'
 
-interface WorldOptions {
+export interface WorldOptions {
     height?: number
     minY?: number
     enableSkyLight?: boolean
@@ -13,7 +16,9 @@ interface WorldOptions {
     writeLightToOriginalWorld?: boolean
 }
 
-export const convertPrismarineBlockToWorldBlock = (stateId: number, mcData: IndexedData): WorldBlock => {
+export type McData = Pick<IndexedData, 'blocksByStateId'>
+
+export const convertPrismarineBlockToWorldBlock = (stateId: number, mcData: McData): WorldBlock => {
     const blockData = mcData.blocksByStateId[stateId]!
     let emitLight = blockData.emitLight;
     // todo disabled for perf for now
@@ -31,7 +36,7 @@ export const convertPrismarineBlockToWorldBlock = (stateId: number, mcData: Inde
     return worldBlock
 }
 
-function posInChunk (x: number, y: number, z: number) {
+export function posInChunk (x: number, y: number, z: number) {
     return {
         x: x & 15,
         y: y,
@@ -39,8 +44,7 @@ function posInChunk (x: number, y: number, z: number) {
     }
 }
 
-export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: IndexedData, options: WorldOptions = {}) => {
-    const Chunk = PrismarineChunk(mcData.version.minecraftVersion!)
+export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: McData, options: WorldOptions = {}) => {
     const WORLD_HEIGHT = options.height ?? 320
     const WORLD_MIN_Y = options.minY ?? -64
 
@@ -66,7 +70,7 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
             return convertPrismarineBlockToWorldBlock(block, mcData)
         },
         setBlock(x, y, z, blockId) {
-            throw new Error('Not implemented')
+            // no-op
         },
         getChunk(chunkX, chunkZ) {
             let chunk = world.getColumn(chunkX, chunkZ)
@@ -199,23 +203,6 @@ export const createLightEngineForSyncWorld = (world: world.WorldSync, mcData: In
     return engine
 }
 
-interface ChunkUpdateFromWorker {
-    chunkX: number
-    chunkZ: number
-    json: string
-}
-
-interface LightEngineWorkerMainMethods {
-    initialize(options: WorldOptions): void
-    updateChunk(chunkX: number, chunkZ: number, json: string): Promise<ChunkUpdateFromWorker[]>
-    // todo do batching!
-    setBlock(x: number, y: number, z: number, blockId: number): Promise<ChunkUpdateFromWorker[]>
-    unloadChunk(chunkX: number, chunkZ: number): void
-    // getLightsLevel
-    // getPerformanceStats
-    // dumpChunkLights
-}
-
 export const fillColumnWithZeroLight = (world: ExternalWorld, startChunkX: number, startChunkZ: number) => {
     const chunk = world.getChunk(startChunkX, startChunkZ)
     if (chunk?.['hasLightFromEngine']) {
@@ -227,5 +214,90 @@ export const fillColumnWithZeroLight = (world: ExternalWorld, startChunkX: numbe
                 world.setBlockLight(x, y, z, 0)
             }
         }
+    }
+}
+
+export interface ChunkUpdateFromWorker {
+    chunkX: number
+    chunkZ: number
+}
+
+interface LightEngineWorkerMainMethods {
+    initialize(options: WorldOptions): void
+    loadChunk(chunkX: number, chunkZ: number, doLighting: boolean): Promise<ChunkUpdateFromWorker[]>
+    // todo do batching!
+    setBlock(x: number, y: number, z: number, blockId: number): Promise<ChunkUpdateFromWorker[]>
+    unloadChunk(chunkX: number, chunkZ: number): void
+    destroy(): void
+    // getLightsLevel
+    // getPerformanceStats
+    // dumpChunkLights
+}
+
+export const dumpPrismarineChunkLights = (world: world.WorldSync, chunkX: number, chunkZ: number) => {
+    const chunk = world.getColumn(chunkX, chunkZ) as any
+    return chunk.dumpLightNew()
+    // return chunk.toJson()
+}
+
+interface LightData {
+    skyLightMask: number[]
+    blockLightMask: number[]
+    emptySkyLightMask: number[]
+    emptyBlockLightMask: number[]
+}
+
+// export const loadPrismarineChunkLights = (world: world.WorldSync, chunkX: number, chunkZ: number, lightDump: LightData, Chunk: typeof import('prismarine-chunk/types/index').PCChunk) => {
+//     const chunk = world.getColumn(chunkX, chunkZ) as any
+//     if (!chunk) return
+//     if (chunk.loadLight) {
+//         chunk.loadLight(lightDump, lightData.skyLightMask, lightData.blockLightMask, lightData.emptySkyLightMask, lightData.emptyBlockLightMask)
+//     } else {
+//         chunk.loadParsedLight(lightData.skyLight, lightData.blockLight, lightData.skyLightMask, lightData.blockLightMask, lightData.emptySkyLightMask, lightData.emptyBlockLightMask)
+//     }
+
+//     // world.setColumn(chunkX, chunkZ, Chunk.fromJson(json) as any, false)
+// }
+
+export const createPrismarineLightEngineWorker = (worker: Worker, world: world.WorldSync, mcData: IndexedData) => {
+    const proxy = useWorkerProxy<typeof prismarineWorkerType>(worker)
+    const version = mcData.version.minecraftVersion!
+    const Chunk = (ChunkLoader as any)(version)
+
+    const methods: LightEngineWorkerMainMethods = {
+        initialize(options: WorldOptions) {
+            proxy.initialize(version, options, { blocksByStateId: mcData.blocksByStateId })
+        },
+        async loadChunk(chunkX: number, chunkZ: number, doLighting: boolean): Promise<ChunkUpdateFromWorker[]> {
+            const column = world.getColumn(chunkX, chunkZ)
+            const json = column.toJson()
+            const chunks = await proxy.loadChunk(chunkX, chunkZ, json, doLighting) ?? []
+            chunks.forEach(({ chunkX, chunkZ, data }) => {
+                const chunk = world.getColumn(chunkX, chunkZ) as any
+                if (!chunk) return
+                chunk.loadLightNew(data)
+            })
+            return chunks
+        },
+        async setBlock(x, y, z, blockId) {
+            const {affectedChunks: chunks} = await proxy.setBlock(x, y, z, blockId) ?? {}
+            if (!chunks) return []
+            chunks.forEach(({ chunkX, chunkZ, data }) => {
+                const chunk = world.getColumn(chunkX, chunkZ) as any
+                if (!chunk) return
+                chunk.loadLightNew(data)
+            })
+            return chunks
+        },
+        unloadChunk(chunkX, chunkZ) {
+            proxy.unloadChunk(chunkX, chunkZ)
+        },
+        destroy() {
+            worker.terminate()
+        },
+    }
+
+    return {
+        ...methods,
     }
 }

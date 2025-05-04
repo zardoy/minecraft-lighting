@@ -5,6 +5,7 @@ import minecraftData from 'minecraft-data'
 import { Vec3 } from 'vec3'
 import { createLightEngineForSyncWorld } from './prismarineShim'
 import { getPrismarineSyncWorld } from './prismarineWorld'
+import { testCases } from './testCases'
 
 const mcData = minecraftData('1.19.4')
 const getSyncWorldTest = () => {
@@ -66,14 +67,16 @@ describe('Block Light', () => {
         `)
     })
 
-    test.todo('light blocked by stone block', () => {
+    test('light blocked by stone block', async () => {
         const world = new LightWorld()
 
         // Place a glowstone block at (5, 64, 5)
-        world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
+        world.externalWorld.setBlock(5, 64, 5, TEST_BLOCKS.glowstone.id)
 
         // Place a stone block at (5, 64, 6) to block light
-        world.setBlockLegacy(5, 64, 6, TEST_BLOCKS.stone)
+        world.externalWorld.setBlock(5, 64, 6, TEST_BLOCKS.stone.id)
+
+        await world.receiveUpdateColumn(0, 0)
 
         const lightLevels = getTestLightLevels(world)
         expect(lightLevels).toMatchInlineSnapshot(`
@@ -216,14 +219,25 @@ describe('External world sync prismarine integration', () => {
   })
 })
 
-describe.todo('Sky Light', () => {
-  test('single glowstone block sky light propagation', () => {
-    const world = new LightWorld()
+describe('Sky Light', () => {
+  test('single glowstone block sky light propagation', async () => {
+    const lightWorld = await testCases.sunlight_stone_up()
+    const X = -4
+    const Z = -4
+    const lightLevels = getTestLightLevels(lightWorld, true, X, Z)
 
-    // Place a glowstone block at (5, 64, 5)
-    world.setBlockLegacy(5, 64, 5, TEST_BLOCKS.glowstone)
-
-    // Get a slice of light levels around the glowstone
-    const lightLevels = getTestLightLevels(world, true)
+    expect(lightLevels).toMatchInlineSnapshot(`
+      "  5 |  6 |  7 |  8 |  9 | 10 |  9 |  8 |  7 |  6 |  5 |
+      |  6 |  7 |  8 |  9 | 10 | 11 | 10 |  9 |  8 |  7 |  6 |
+      |  7 |  8 |  9 | 10 | 11 | 12 | 11 | 10 |  9 |  8 |  7 |
+      |  8 |  9 | 10 | 11 | 12 | 13 | 12 | 11 | 10 |  9 |  8 |
+      |  9 | 10 | 11 | 12 | 13 | 14 | 13 | 12 | 11 | 10 |  9 |
+      | 10 | 11 | 12 | 13 | 14 | 15 | 14 | 13 | 12 | 11 | 10 |
+      |  9 | 10 | 11 | 12 | 13 | 14 | 13 | 12 | 11 | 10 |  9 |
+      |  8 |  9 | 10 | 11 | 12 | 13 | 12 | 11 | 10 |  9 |  8 |
+      |  7 |  8 |  9 | 10 | 11 | 12 | 11 | 10 |  9 |  8 |  7 |
+      |  6 |  7 |  8 |  9 | 10 | 11 | 10 |  9 |  8 |  7 |  6 |
+      |  5 |  6 |  7 |  8 |  9 | 10 |  9 |  8 |  7 |  6 |  5 |"
+    `)
   })
 })

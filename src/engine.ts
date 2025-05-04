@@ -93,12 +93,16 @@ export class LightWorld {
     }
 
     private markStart(name: string) {
-        performance.mark(`${name}-start`);
+        const id = performance.now()
+        performance.mark(`${name}-${id}-start`);
+        return () => {
+            this.markEnd(name, id)
+        }
     }
 
-    private markEnd(name: string) {
-        performance.mark(`${name}-end`);
-        performance.measure(name, `${name}-start`, `${name}-end`);
+    private markEnd(name: string, id: number) {
+        performance.mark(`${name}-${id}-end`);
+        performance.measure(name, `${name}-${id}-start`, `${name}-${id}-end`);
 
         if (typeof performance !== 'undefined') {
             // Browser-specific code
@@ -112,8 +116,8 @@ export class LightWorld {
         }
 
         // Cleanup
-        performance.clearMarks(`${name}-start`);
-        performance.clearMarks(`${name}-end`);
+        performance.clearMarks(`${name}-${id}-start`);
+        performance.clearMarks(`${name}-${id}-end`);
         performance.clearMeasures(name);
     }
 
@@ -614,7 +618,7 @@ export class LightWorld {
 
     // Enhanced directional skylight propagation similar to Minecraft's propagateIncrease
     private propagateSunLight(): void {
-        this.markStart('propagateSunLight');
+        const end = this.markStart('propagateSunLight')
 
         const processed = new Set<string>();
 
@@ -690,7 +694,7 @@ export class LightWorld {
             }
         }
 
-        this.markEnd('propagateSunLight');
+        end()
     }
 
     private propagateGeneric(
@@ -772,14 +776,14 @@ export class LightWorld {
     }
 
     public propagateBlockLight(): void {
-        this.markStart('propagateLight');
+        const end = this.markStart('propagateLight')
         this.propagateGeneric(
             this.blockLightQueue,
             (chunk, x, y, z) => chunk.getBlockLight(x, y, z),
             (chunk, x, y, z, value) => chunk.setBlockLight(x, y, z, value),
             this.filterLight
         );
-        this.markEnd('propagateLight');
+        end()
     }
 
     // calculateInitialSunLight(chunk: GeneralChunk): void {
@@ -825,27 +829,29 @@ export class LightWorld {
         }
         this.pendingLightUpdates.set(key, update);
 
-        if (!this.isProcessingLight) {
-            const promise = this.processLightQueue();
-            if (!this.PARALLEL_CHUNK_PROCESSING) {
-                await promise;
-            }
-        }
+        const promise = this.processLightQueue();
+        await promise;
+        // if (!this.isProcessingLight) {
+        //     if (!this.PARALLEL_CHUNK_PROCESSING) {
+        //         await promise;
+        //     }
+        // }
 
-        const res = await new Promise<boolean>(resolve => {
-            update.terminate = () => {
-                resolve(false);
-            }
-            const checkComplete = () => {
-                if (!this.pendingLightUpdates.has(key)) {
-                    resolve(true);
-                } else {
-                    setTimeout(checkComplete, 10);
-                }
-            };
-            checkComplete();
-        })
-        if (!res) return null;
+        // disable process termination for now
+        // const res = await new Promise<boolean>(resolve => {
+        //     update.terminate = () => {
+        //         resolve(false);
+        //     }
+        //     const checkComplete = () => {
+        //         if (!this.pendingLightUpdates.has(key)) {
+        //             resolve(true);
+        //         } else {
+        //             setTimeout(checkComplete, 10);
+        //         }
+        //     };
+        //     checkComplete();
+        // })
+        // if (!res) return null;
 
         // Get affected chunks that were modified after operation start
         const affectedChunks = Array.from(this.affectedChunksTimestamps.entries())
@@ -863,14 +869,14 @@ export class LightWorld {
     }
 
     private async processLightQueue(): Promise<void> {
-        this.markStart('processLightQueue');
+        const end = this.markStart('processLightQueue')
         this.isProcessingLight = true;
 
         try {
             // Convert Map to array and sort by priority/timestamp if needed
-            const updates = Array.from(this.pendingLightUpdates.entries());
+            const currentUpdates = Array.from(this.pendingLightUpdates.entries());
 
-            for (const [key, update] of updates) {
+            for (const [key, update] of currentUpdates) {
                 // Check if this update has been superseded
                 const currentUpdate = this.pendingLightUpdates.get(key);
                 if (!currentUpdate || currentUpdate.timestamp !== update.timestamp) {
@@ -900,13 +906,13 @@ export class LightWorld {
             }
         } finally {
             this.isProcessingLight = false;
-            this.markEnd('processLightQueue');
+            end()
         }
     }
 
     // Update this method to only process torch light sources
     private async processTorchlightForChunk(chunk: GeneralChunk): Promise<void> {
-        this.markStart('processTorchlightForChunk');
+        const end = this.markStart('processTorchlightForChunk')
 
         // Scan the chunk for light-emitting blocks
         for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -934,7 +940,7 @@ export class LightWorld {
         // Propagate torch light
         await this.propagateBlockLight();
 
-        this.markEnd('processTorchlightForChunk');
+        end()
     }
 
     private async processSunlightForChunk(chunk: GeneralChunk): Promise<void> {
@@ -942,7 +948,7 @@ export class LightWorld {
             return;
         }
 
-        this.markStart('processSunlightForChunk');
+        const end = this.markStart('processSunlightForChunk')
 
         // Process skylight for the entire chunk column by column
         for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -1008,7 +1014,7 @@ export class LightWorld {
         // Mark the chunk as affected for rendering updates
         this.setBlockChunkAffected(chunk.position.x * CHUNK_SIZE, 0, chunk.position.z * CHUNK_SIZE);
 
-        this.markEnd('processSunlightForChunk');
+        end()
     }
 
     private addPendingLight(x: number, y: number, z: number, sourceChunk: GeneralChunk): void {

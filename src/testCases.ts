@@ -9,19 +9,33 @@ const version = '1.20.4';
 const syncWorld = getPrismarineSyncWorld(version)
 const data = minecraftData(version)
 
+// TESTING Y = 64
+
 export const testCases = {
+    // check re-propagation of sunlight between chunks
     async sunlight_stone_up() {
         const lightWorld = createLightEngineForSyncWorld(syncWorld, data)
-        for (let x = 0; x < 16; x++) {
-            for (let z = 0; z < 16; z++) {
-                syncWorld.setBlockStateId(new Vec3(x, 0, z), data.blocksByName['stone']!.defaultState)
+        // ceiling
+        for (let x = -16; x < 16; x++) {
+            for (let z = -16; z < 16; z++) {
+                syncWorld.setBlockStateId(new Vec3(x, 84, z), data.blocksByName['stone']!.defaultState)
             }
         }
-        syncWorld.setBlockStateId(new Vec3(0, 5, 0), data.blocksByName['stone']!.defaultState)
+        // floor
+        for (let x = -16; x < 16; x++) {
+            for (let z = -16; z < 16; z++) {
+                syncWorld.setBlockStateId(new Vec3(x, 63, z), data.blocksByName['stone']!.defaultState)
+            }
+        }
+
         await lightWorld.receiveUpdateColumn(0, 0)
-        console.log(lightWorld.getSunLight(0, 1, 0))
+
+        syncWorld.setBlockStateId(new Vec3(1, 84, 1), 0)
+        const chunks = await lightWorld.receiveUpdateColumn(0, 0)
+        return lightWorld
+        // console.log(lightWorld.getSunLight(0, 1, 0))
         // console.log(lightWorld.getPerformanceStats())
     }
 }
 
-testCases.sunlight_stone_up()
+// testCases.sunlight_stone_up()
